@@ -317,3 +317,87 @@ class SupabasePersistence:
             )
             response.raise_for_status()
             return list(response.json())
+
+
+    async def create_tournament_run(
+        self,
+        user_id: str,
+        dataset_version: str,
+        split: str,
+        competitors: list[str],
+        parameters: dict[str, Any],
+        git_commit: str | None,
+    ) -> str:
+        payload = {
+            "requested_by": user_id,
+            "dataset_version": dataset_version,
+            "split": split,
+            "status": "running",
+            "competitors": competitors,
+            "parameters": parameters,
+            "git_commit": git_commit,
+            "started_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{self.url}/rest/v1/model_tournament_runs",
+                headers=self._service_headers("return=representation"),
+                json=payload,
+            )
+            response.raise_for_status()
+            rows = response.json()
+        if not rows:
+            raise RuntimeError("Supabase did not return the tournament run.")
+        return str(rows[0]["id"])
+
+    async def store_tournament_entry(
+        self,
+        tournament_run_id: str,
+        model_key: str,
+        status: str,
+        metrics: dict[str, Any],
+        model_metadata: dict[str, Any],
+        availability_reason: str | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        payload = {
+            "tournament_run_id": tournament_run_id,
+            "model_key": model_key,
+            "status": status,
+            "metrics": metrics,
+            "model_metadata": model_metadata,
+            "availability_reason": availability_reason,
+            "duration_ms": duration_ms,
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{self.url}/rest/v1/model_tournament_entries",
+                headers=self._service_headers("resolution=merge-duplicates,return=minimal"),
+                params={"on_conflict": "tournament_run_id,model_key"},
+                json=payload,
+            )
+            response.raise_for_status()
+
+    async def finish_tournament_run(
+        self,
+        tournament_run_id: str,
+        status: str,
+        winner: str | None,
+        ranking: list[dict[str, Any]],
+        error_message: str | None = None,
+    ) -> None:
+        payload = {
+            "status": status,
+            "winner": winner,
+            "ranking": ranking,
+            "error_message": error_message,
+            "finished_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.patch(
+                f"{self.url}/rest/v1/model_tournament_runs",
+                headers=self._service_headers("return=minimal"),
+                params={"id": f"eq.{tournament_run_id}"},
+                json=payload,
+            )
+            response.raise_for_status()
