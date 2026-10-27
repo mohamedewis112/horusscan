@@ -933,3 +933,50 @@ async def smoke_dem() -> dict:
         "real_data": True,
         "reports": reports,
     }
+
+
+
+@app.get("/v1/smoke/olmoearth")
+async def smoke_olmoearth() -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    bbox = (31.20, 29.92, 31.22, 29.94)
+    try:
+        from app.pipeline.olmoearth_embeddings import analyze_olmoearth_embeddings
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "import_olmoearth",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    try:
+        result = await analyze_olmoearth_embeddings(
+            bbox,
+            year=2025,
+            dims=64,
+            target_shape=(192, 192),
+        )
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "olmoearth_embedding_read",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    return {
+        "real_data": True,
+        "status": "completed",
+        "source": "Source Cooperative / Ai2",
+        "summary": result["summary"],
+        "provenance": result["provenance"],
+        "scientific_note": (
+            "OlmoEarth v1.3 annual foundation-model embedding anomaly rank. "
+            "It is not an archaeological probability and uses the 2025 annual embedding."
+        ),
+    }
