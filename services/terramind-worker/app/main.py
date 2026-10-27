@@ -176,3 +176,31 @@ async def infer(request: Request):
             "not_probability":True,
         },
     }
+
+
+@app.get("/smoke")
+async def smoke():
+    result = await infer(
+        Request(
+            task="spatial_anomaly_heatmap",
+            bbox=(31.20, 29.92, 31.22, 29.94),
+            start="2026-04-01T00:00:00Z",
+            end="2026-10-26T23:59:59Z",
+            max_cloud=25.0,
+        )
+    )
+    features=result.get("heatmap",{}).get("features",[])
+    scores=[
+        float(item.get("properties",{}).get("anomaly_score"))
+        for item in features
+        if isinstance(item.get("properties",{}).get("anomaly_score"),(int,float))
+    ]
+    return {
+        "status":"completed",
+        "real_inference":result.get("real_inference") is True,
+        "model_metadata":result.get("model_metadata",{}),
+        "feature_count":len(features),
+        "score_min":min(scores) if scores else None,
+        "score_max":max(scores) if scores else None,
+        "provenance":result.get("provenance",{}),
+    }
