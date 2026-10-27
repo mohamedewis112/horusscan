@@ -10,22 +10,6 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.persistence import PersistenceUnavailable, SupabasePersistence
-from app.pipeline.multisensor import analyze_sar_stack, analyze_terrain, fuse_sensor_scores
-from app.pipeline.raster_baseline import analyze_scene
-from app.validation.benchmark import ValidationCase, compute_benchmark_metrics, deterministic_control
-from app.validation.runner import run_validation_case
-from app.routes.advanced import router as advanced_router
-from app.routes.geometry import router as geometry_router
-from app.routes.tournament import router as tournament_router
-from app.providers.stac import (
-    search_copernicus_dem,
-    search_open_cog_sentinel2,
-    search_sentinel1_rtc,
-    search_sentinel2,
-)
-
-
 app = FastAPI(
     title="HorusScan AI API",
     version="0.3.0",
@@ -45,9 +29,6 @@ app.add_middleware(
     allow_headers=["authorization", "content-type"],
 )
 
-app.include_router(advanced_router)
-app.include_router(geometry_router)
-app.include_router(tournament_router)
 
 
 class SceneSearchRequest(BaseModel):
@@ -106,6 +87,8 @@ async def health() -> dict[str, str]:
 
 @app.post("/v1/scenes/sentinel-2")
 async def discover_sentinel2(request: SceneSearchRequest) -> dict:
+    from app.providers.stac import search_sentinel2
+
     validate_bbox(request.bbox)
     scenes = await search_sentinel2(
         request.bbox,
@@ -124,6 +107,9 @@ async def discover_sentinel2(request: SceneSearchRequest) -> dict:
 
 @app.post("/v1/analysis/sentinel-2-baseline")
 async def run_sentinel2_baseline(request: BaselineAnalysisRequest) -> dict:
+    from app.pipeline.raster_baseline import analyze_scene
+    from app.providers.stac import search_open_cog_sentinel2
+
     validate_bbox(request.bbox)
 
     scenes = await search_open_cog_sentinel2(
@@ -182,6 +168,15 @@ async def run_multisensor_baseline(
     request: MultisensorAnalysisRequest,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
+    from app.persistence import PersistenceUnavailable, SupabasePersistence
+    from app.pipeline.multisensor import analyze_sar_stack, analyze_terrain, fuse_sensor_scores
+    from app.pipeline.raster_baseline import analyze_scene
+    from app.providers.stac import (
+        search_copernicus_dem,
+        search_open_cog_sentinel2,
+        search_sentinel1_rtc,
+    )
+
     validate_bbox(request.bbox)
 
     persistence: SupabasePersistence | None = None
@@ -415,6 +410,14 @@ async def run_validation_benchmark(
     request: ValidationRunRequest,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
+    from app.persistence import PersistenceUnavailable, SupabasePersistence
+    from app.validation.benchmark import (
+        ValidationCase,
+        compute_benchmark_metrics,
+        deterministic_control,
+    )
+    from app.validation.runner import run_validation_case
+
     if request.split not in {"calibration", "validation", "blind_test"}:
         raise HTTPException(status_code=422, detail="Invalid validation split.")
 
@@ -626,3 +629,44 @@ async def run_validation_benchmark(
             status_code=502,
             detail=f"Validation benchmark failed: {type(exc).__name__}: {exc}",
         ) from exc
+
+
+
+@app.post("/v1/analysis/hyperfusion-v0")
+async def run_hyperfusion_proxy(
+    payload: dict,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    from app.routes.advanced import HyperFusionRequest, run_hyperfusion_v0
+
+    return await run_hyperfusion_v0(
+        HyperFusionRequest(**payload),
+        authorization,
+    )
+
+
+@app.get("/v1/foundation/models")
+async def list_foundation_models_proxy() -> dict:
+    from app.routes.tournament import list_foundation_models
+
+    return await list_foundation_models()
+
+
+@app.post("/v1/tournament/run")
+async def run_tournament_proxy(
+    payload: dict,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    from app.routes.tournament import TournamentRequest, run_model_tournament
+
+    return await run_model_tournament(
+        TournamentRequest(**payload),
+        authorization,
+    )
+
+
+@app.post("/v1/foundation/segment-candidates")
+async def segment_candidates_proxy(payload: dict) -> dict:
+    from app.routes.geometry import GeometryRequest, segment_candidates
+
+    return await segment_candidates(GeometryRequest(**payload))
