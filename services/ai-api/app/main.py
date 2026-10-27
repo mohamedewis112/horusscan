@@ -647,9 +647,15 @@ async def run_hyperfusion_proxy(
 
 @app.get("/v1/foundation/models")
 async def list_foundation_models_proxy() -> dict:
-    from app.routes.tournament import list_foundation_models
+    from app.foundation.registry import get_model_registry
 
-    return await list_foundation_models()
+    return {
+        "models": get_model_registry(),
+        "note": (
+            "available=true only means a real inference endpoint is configured. "
+            "HorusScan rejects responses that do not certify real_inference=true."
+        ),
+    }
 
 
 @app.post("/v1/tournament/run")
