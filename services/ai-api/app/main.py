@@ -911,7 +911,6 @@ async def smoke_hyperfusion() -> dict:
         "real_data": True,
         "status": "completed",
         "engine": result["engine"],
-        "per_branch_evaluation": per_branch_evaluation,
         "branches_used": result["branches_used"],
         "branch_summaries": result["branches"],
         "fusion_summary": result["fusion"]["summary"],
