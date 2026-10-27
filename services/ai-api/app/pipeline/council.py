@@ -381,9 +381,9 @@ def build_council_report(
             {
                 "candidate_id": f"H-{index:03d}",
                 "approximate_center": {
-                    "lon": round(lon, 2),
-                    "lat": round(lat, 2),
-                    "precision": "coarse_research_zone",
+                    "lon": round(lon, 6),
+                    "lat": round(lat, 6),
+                    "precision": "model_cell_center_with_reported_spatial_uncertainty",
                 },
                 "geometry": _candidate_polygon(lon, lat, spatial_uncertainty_m),
                 "geometry_source": "coarse_research_zone_not_excavation_target",
@@ -459,7 +459,7 @@ def build_council_report(
             "deliberation": "structured_evidence_adjudication_not_freeform_chat",
             "evidence_independence": "correlated models are grouped before consensus",
             "confidence": "calibrated ranking index with disagreement-derived uncertainty; not probability of archaeology",
-            "candidate_generation": "local maxima summarized into coarse research zones; exact target coordinates withheld",
+            "candidate_generation": "local maxima are tied to their real model-cell centers and reported with explicit spatial uncertainty; zones are research candidates, not excavation targets",
             "deep_review": "each candidate is re-evaluated at fine, medium, and broad spatial context before final confidence",
         },
     }
