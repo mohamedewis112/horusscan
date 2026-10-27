@@ -22,3 +22,5 @@
 .validation-results>div{display:flex;justify-content:space-between;gap:12px;font-size:12px}
 .validation-results span{color:#aeb6bf}.validation-results strong{color:#f4e3b7}.validation-results small{color:#8f99a4;line-height:1.45}
 .validation-error{margin-top:10px;color:#ffd1d1;font-size:12px}
+
+.blind-warning{margin-top:10px;padding:9px 10px;border:1px solid #7a6235;border-radius:8px;background:#17140d;color:#e6c77c;font-size:11px;line-height:1.45}
