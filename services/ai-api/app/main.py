@@ -697,7 +697,6 @@ async def run_hyperfusion_proxy(
             start = datetime.fromisoformat(str(payload["start"]).replace("Z", "+00:00"))
             end = datetime.fromisoformat(str(payload["end"]).replace("Z", "+00:00"))
             max_cloud = float(payload.get("max_cloud", 20.0))
-            fusion_profile = str(payload.get("fusion_profile", "calibration_v1"))
             fusion_profile = str(
                 payload.get(
                     "fusion_profile",
