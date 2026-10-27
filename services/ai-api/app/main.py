@@ -4,7 +4,9 @@ import asyncio
 from datetime import datetime
 from typing import Annotated
 
-import httpx\nfrom fastapi import FastAPI, Header, HTTPException
+import httpx
+import os
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -187,7 +189,8 @@ async def run_multisensor_baseline(
                 {
                     "status": "discovering",
                     "progress_stage": "multisensor_data_discovery",
-                    "started_at": datetime.utcnow().isoformat() + "Z",\n                    "git_commit": os.getenv("GIT_COMMIT_SHA"),
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                    "git_commit": os.getenv("GIT_COMMIT_SHA"),
                 },
             )
         except (PersistenceUnavailable, httpx.HTTPError, PermissionError) as exc:
