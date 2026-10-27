@@ -177,7 +177,7 @@ async def smoke_council() -> dict[str, Any]:
         end=datetime.fromisoformat("2026-10-26T23:59:59+00:00"),
         max_cloud=25.0,
         fusion_profile="calibration_v1",
-        max_candidates=3,
+        max_candidates=10,
     )
     result = await analyze_with_horus_council(request)
     return {
@@ -186,6 +186,7 @@ async def smoke_council() -> dict[str, Any]:
         "engine": result["engine"],
         "branches_used": result["branches_used"],
         "candidate_count": result["council"]["candidate_count"],
+        "coverage_summary": result["council"].get("coverage_summary"),
         "candidate_summary": [
             {
                 "candidate_id": item["candidate_id"],
@@ -195,6 +196,7 @@ async def smoke_council() -> dict[str, Any]:
                 "independent_support_count": item["independent_support_count"],
                 "model_agreement": item["council_summary"]["model_agreement"],
                 "critic_verdict": item["critic"]["verdict"],
+                "multi_scale_review": item.get("multi_scale_review"),
             }
             for item in result["council"]["candidates"]
         ],
