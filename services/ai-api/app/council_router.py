@@ -15,6 +15,7 @@ from app.pipeline.serverless_raster import (
     fuse_serverless_layers,
     run_serverless_hyperfusion,
     search_pc_collection,
+    score_to_heatmap,
 )
 from app.pipeline.physics_sar import analyze_physics_sar
 from app.pipeline.archaeology_memory import (
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/v1/council", tags=["horus-council"])
 
 class CouncilRequest(BaseModel):
     bbox: tuple[float, float, float, float]
+    aoi_polygon: list[tuple[float, float]] | None = None
     start: datetime
     end: datetime
     max_cloud: float = Field(default=20.0, ge=0.0, le=100.0)
@@ -42,9 +44,56 @@ def _validate_bbox(bbox: tuple[float, float, float, float]) -> None:
         raise HTTPException(status_code=422, detail="Invalid bounding box.")
 
 
+def _validate_polygon(
+    polygon: list[tuple[float, float]] | None,
+    bbox: tuple[float, float, float, float],
+) -> None:
+    if polygon is None:
+        return
+    if len(polygon) < 3:
+        raise HTTPException(status_code=422, detail="AOI polygon needs at least three points.")
+    min_lon, min_lat, max_lon, max_lat = bbox
+    for lon, lat in polygon:
+        if not (min_lon - 1e-8 <= lon <= max_lon + 1e-8 and min_lat - 1e-8 <= lat <= max_lat + 1e-8):
+            raise HTTPException(status_code=422, detail="AOI polygon point falls outside its bounding box.")
+
+
+def _polygon_mask(
+    shape: tuple[int, int],
+    bbox: tuple[float, float, float, float],
+    polygon: list[tuple[float, float]] | None,
+) -> np.ndarray:
+    if not polygon:
+        return np.ones(shape, dtype=bool)
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    height, width = shape
+    mask = np.zeros(shape, dtype=bool)
+    vertices = [(float(lon), float(lat)) for lon, lat in polygon]
+
+    for row in range(height):
+        lat = max_lat - ((row + 0.5) / height) * (max_lat - min_lat)
+        for col in range(width):
+            lon = min_lon + ((col + 0.5) / width) * (max_lon - min_lon)
+            inside = False
+            j = len(vertices) - 1
+            for i, (xi, yi) in enumerate(vertices):
+                xj, yj = vertices[j]
+                intersects = ((yi > lat) != (yj > lat)) and (
+                    lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+                )
+                if intersects:
+                    inside = not inside
+                j = i
+            mask[row, col] = inside
+
+    return mask
+
+
 @router.post("/analyze")
 async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
     _validate_bbox(request.bbox)
+    _validate_polygon(request.aoi_polygon, request.bbox)
     if request.fusion_profile not in {"equal_v0", "calibration_v1"}:
         raise HTTPException(status_code=422, detail="Unknown fusion profile.")
 
@@ -92,7 +141,12 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
     if not evidence:
         raise HTTPException(status_code=502, detail="Council received no usable evidence layers.")
 
-    fusion_evidence = dict(evidence)
+    polygon_mask = _polygon_mask(shape, request.bbox, request.aoi_polygon)
+
+    fusion_evidence = {
+        name: np.where(polygon_mask, score, np.nan).astype(np.float32)
+        for name, score in evidence.items()
+    }
     fusion = fuse_serverless_layers(
         fusion_evidence,
         request.bbox,
@@ -112,14 +166,23 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
                 6,
             )
             physics_sar = await analyze_physics_sar(sar_scenes, request.bbox)
-            evidence["physics_sar"] = physics_sar["score"]
+            evidence["physics_sar"] = np.where(
+                polygon_mask,
+                physics_sar["score"],
+                np.nan,
+            ).astype(np.float32)
             branches["physics_sar"] = physics_sar["summary"]
             provenance["physics_sar"] = physics_sar["provenance"]
         except Exception as exc:
             limitations["physics_sar"] = f"{type(exc).__name__}: {exc}"
 
+    council_evidence = {
+        name: np.where(polygon_mask, score, np.nan).astype(np.float32)
+        for name, score in evidence.items()
+    }
+
     council = build_council_report(
-        evidence=evidence,
+        evidence=council_evidence,
         fused=fusion["score"],
         bbox=request.bbox,
         fusion_profile=request.fusion_profile,
@@ -199,8 +262,11 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
         "limitations": limitations,
         "fusion": {
             "summary": fusion["summary"],
-            "heatmap": fusion["heatmap"],
-            "provenance": fusion["provenance"],
+            "heatmap": score_to_heatmap(fusion["score"], request.bbox),
+            "provenance": {
+                **fusion["provenance"],
+                "aoi_mask": "polygon" if request.aoi_polygon else "bbox",
+            },
         },
         "council": council,
         "model_states": model_states + [
@@ -222,6 +288,10 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
             },
         ],
         "discovery": base.get("discovery") or {},
+        "aoi": {
+            "mode": "polygon" if request.aoi_polygon else "bbox",
+            "polygon_vertex_count": len(request.aoi_polygon or []),
+        },
         "scientific_status": (
             "Horus Council combines independent evidence families and available real model outputs. "
             "The confidence index is a calibrated ranking index with uncertainty, not a probability "
