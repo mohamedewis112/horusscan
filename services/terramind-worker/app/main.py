@@ -166,7 +166,7 @@ async def infer(request: Request):
     return {
         "real_inference":True,
         "heatmap":heatmap,
-        "model_metadata":{"model_key":"terramind","model_name":"terramind_v1_tiny","parameters":"~6M","embedding_dim":dim,"device":"cpu"},
+        "model_metadata":{"model_key":"terramind","model_name":"terramind_v1_tiny","embedding_dim":dim,"device":"cpu"},
         "provenance":{
             "provider":"Microsoft Planetary Computer + TerraMind v1",
             "sentinel2_item":s2_item["id"],
