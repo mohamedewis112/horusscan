@@ -202,4 +202,17 @@ REFERENCE_SITES: dict[str, dict[str, Any]] = {
 
 # Populated only from real HorusScan runs over public reference sites.
 # Never hand-author model scores here.
-REFERENCE_FINGERPRINTS: dict[str, dict[str, float]] = {}
+REFERENCE_FINGERPRINTS: dict[str, dict[str, float]] = {
+    "tarkhan": {"spectral": 0.187929, "sar": 0.321128, "terrain": 0.275169, "thermal": 0.216896, "olmoearth": 0.311650},
+    "sedment": {"spectral": 0.186736, "sar": 0.269583, "terrain": 0.164878, "thermal": 0.162742, "olmoearth": 0.287777},
+    "beni_hasan": {"spectral": 0.266888, "sar": 0.214531, "terrain": 0.329949, "thermal": 0.213104, "olmoearth": 0.299905},
+    "deir_el_bersha": {"spectral": 0.219539, "sar": 0.291749, "terrain": 0.137009, "thermal": 0.164141, "olmoearth": 0.381183},
+    "mostagedda": {"spectral": 0.297985, "sar": 0.283461, "terrain": 0.202977, "thermal": 0.266463, "olmoearth": 0.443051},
+    "qau_el_kebir": {"spectral": 0.254338, "sar": 0.209643, "terrain": 0.158098, "thermal": 0.196830, "olmoearth": 0.324173},
+    "hierakonpolis": {"spectral": 0.329370, "sar": 0.278892, "terrain": 0.103419, "thermal": 0.206393, "olmoearth": 0.391247},
+    "qubbet_el_hawa": {"spectral": 0.189239, "sar": 0.240906, "terrain": 0.229941, "thermal": 0.417811, "olmoearth": 0.263705},
+    "elkab": {"spectral": 0.423086, "sar": 0.374869, "terrain": 0.136883, "thermal": 0.433984, "olmoearth": 0.392697},
+    "tuna_el_gebel": {"spectral": 0.178207, "sar": 0.180187, "terrain": 0.107854, "thermal": 0.248184, "olmoearth": 0.329117},
+    "naga_ed_der": {"spectral": 0.082583, "sar": 0.198313, "terrain": 0.299795, "thermal": 0.138450, "olmoearth": 0.199833},
+    "gebel_el_muzawaka": {"spectral": 0.171458, "sar": 0.272242, "terrain": 0.205173, "thermal": 0.169190, "olmoearth": 0.280389},
+}
