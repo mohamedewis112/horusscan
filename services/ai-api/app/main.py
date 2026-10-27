@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from app.persistence import PersistenceUnavailable, SupabasePersistence
 from app.pipeline.multisensor import analyze_sar_stack, analyze_terrain, fuse_sensor_scores
 from app.pipeline.raster_baseline import analyze_scene
+from app.validation.benchmark import ValidationCase, compute_benchmark_metrics, deterministic_control
+from app.validation.runner import run_validation_case
 from app.providers.stac import (
     search_copernicus_dem,
     search_open_cog_sentinel2,
@@ -60,6 +62,15 @@ class MultisensorAnalysisRequest(BaselineAnalysisRequest):
     project_id: str | None = None
     aoi_id: str | None = None
     analysis_run_id: str | None = None
+
+
+class ValidationRunRequest(BaseModel):
+    dataset_version: str = "unesco-egypt-public-v1-2026-10-27"
+    split: str = "validation"
+    start: datetime
+    end: datetime
+    max_cloud: float = Field(default=20.0, ge=0.0, le=100.0)
+    include_unlabeled_controls: bool = True
 
 
 def validate_bbox(bbox: tuple[float, float, float, float]) -> None:
@@ -389,4 +400,177 @@ async def run_multisensor_baseline(
         raise HTTPException(
             status_code=502,
             detail=f"Multisensor processing failed: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.post("/v1/validation/run")
+async def run_validation_benchmark(
+    request: ValidationRunRequest,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    if request.split not in {"calibration", "validation", "blind_test", "all"}:
+        raise HTTPException(status_code=422, detail="Invalid validation split.")
+
+    token = bearer_from_header(authorization)
+    if token is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    try:
+        persistence = SupabasePersistence()
+        user_id = await persistence.authenticate(token)
+        sites = await persistence.list_validation_sites(
+            request.dataset_version,
+            request.split,
+        )
+    except (PersistenceUnavailable, httpx.HTTPError, PermissionError) as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    if not sites:
+        raise HTTPException(status_code=404, detail="No validation sites found for requested split.")
+
+    total_cases = len(sites) * (2 if request.include_unlabeled_controls else 1)
+    run_id = await persistence.create_validation_run(
+        user_id=user_id,
+        dataset_version=request.dataset_version,
+        split=request.split,
+        parameters={
+            "start": request.start.isoformat(),
+            "end": request.end.isoformat(),
+            "max_cloud": request.max_cloud,
+            "include_unlabeled_controls": request.include_unlabeled_controls,
+            "method": "known_site_rediscovery_v1",
+            "control_semantics": "unlabeled_not_confirmed_negative",
+        },
+        git_commit=os.getenv("GIT_COMMIT_SHA"),
+    )
+    await persistence.update_validation_run(run_id, {"total_cases": total_cases})
+
+    rows: list[dict] = []
+    completed = 0
+
+    try:
+        for index, site in enumerate(sites):
+            positive = ValidationCase(
+                name=str(site["name"]),
+                case_type="positive",
+                lat=float(site["latitude"]),
+                lon=float(site["longitude"]),
+                radius_m=int(site["evaluation_radius_m"]),
+                site_id=str(site["id"]),
+            )
+
+            cases = [positive]
+            if request.include_unlabeled_controls:
+                cases.append(
+                    deterministic_control(
+                        positive.lat,
+                        positive.lon,
+                        positive.radius_m,
+                        index,
+                    )
+                )
+
+            for case in cases:
+                try:
+                    case_result = await run_validation_case(
+                        case,
+                        request.start,
+                        request.end,
+                        request.max_cloud,
+                    )
+                    evaluation = case_result["evaluation"]
+                    row = {
+                        "case_type": case.case_type,
+                        "case_name": case.name,
+                        "rediscovery_score": evaluation.rediscovery_score,
+                        "center_block_percentile": evaluation.center_block_percentile,
+                        "concentration_ratio": evaluation.concentration_ratio,
+                        "detected_high_priority": evaluation.detected_high_priority,
+                    }
+                    rows.append(row)
+                    await persistence.store_validation_result(
+                        validation_run_id=run_id,
+                        validation_site_id=case.site_id,
+                        case_type=case.case_type,
+                        case_name=case.name,
+                        lon=case.lon,
+                        lat=case.lat,
+                        radius_m=case.radius_m,
+                        rediscovery_score=evaluation.rediscovery_score,
+                        center_block_percentile=evaluation.center_block_percentile,
+                        concentration_ratio=evaluation.concentration_ratio,
+                        detected_high_priority=evaluation.detected_high_priority,
+                        fusion_summary=case_result["fusion_summary"],
+                        sensor_summary=case_result["sensor_summary"],
+                    )
+                except Exception as case_exc:
+                    rows.append(
+                        {
+                            "case_type": case.case_type,
+                            "case_name": case.name,
+                            "rediscovery_score": None,
+                            "detected_high_priority": False,
+                            "error": f"{type(case_exc).__name__}: {case_exc}",
+                        }
+                    )
+                    await persistence.store_validation_result(
+                        validation_run_id=run_id,
+                        validation_site_id=case.site_id,
+                        case_type=case.case_type,
+                        case_name=case.name,
+                        lon=case.lon,
+                        lat=case.lat,
+                        radius_m=case.radius_m,
+                        rediscovery_score=None,
+                        center_block_percentile=None,
+                        concentration_ratio=None,
+                        detected_high_priority=None,
+                        fusion_summary={},
+                        sensor_summary={},
+                        error_message=f"{type(case_exc).__name__}: {case_exc}",
+                    )
+
+                completed += 1
+                await persistence.update_validation_run(
+                    run_id,
+                    {"completed_cases": completed},
+                )
+
+        metrics = compute_benchmark_metrics(rows)
+        await persistence.update_validation_run(
+            run_id,
+            {
+                "status": "completed",
+                "completed_cases": completed,
+                "metrics": metrics,
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            },
+        )
+        return {
+            "validation_run_id": run_id,
+            "dataset_version": request.dataset_version,
+            "split": request.split,
+            "completed_cases": completed,
+            "total_cases": total_cases,
+            "metrics": metrics,
+            "cases": rows,
+            "scientific_note": (
+                "Positive cases are public known archaeological sites. "
+                "Controls are unlabeled comparison areas, not confirmed archaeological negatives. "
+                "Proxy PR/ROC metrics must be interpreted accordingly."
+            ),
+        }
+    except Exception as exc:
+        await persistence.update_validation_run(
+            run_id,
+            {
+                "status": "failed",
+                "completed_cases": completed,
+                "error_message": f"{type(exc).__name__}: {exc}",
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Validation benchmark failed: {type(exc).__name__}: {exc}",
         ) from exc
