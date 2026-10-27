@@ -18,6 +18,7 @@ class BaselineResult:
     cloud_cover: float | None
     summary: dict[str, Any]
     heatmap: dict[str, Any]
+    score: np.ndarray
 
 
 def _asset_href(assets: dict[str, Any], names: tuple[str, ...]) -> str:
@@ -121,4 +122,5 @@ def analyze_scene(
         cloud_cover=cloud_cover,
         summary=summary,
         heatmap=_heatmap_geojson(score, bbox),
+        score=score,
     )
