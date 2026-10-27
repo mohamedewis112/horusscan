@@ -8,6 +8,8 @@ type ModelState = {
   role: string;
   modalities: string[];
   available: boolean;
+  state?: string | null;
+  inference_mode?: string | null;
   reason?: string | null;
 };
 
@@ -79,27 +81,37 @@ export default function ModelLabPanel() {
     }
   }
 
+  const stateLabel = (model: ModelState) => {
+    if (model.available) return "يعمل الآن";
+    if (model.state === "requires_gpu_runtime") return "يحتاج GPU";
+    if (model.state === "runtime_and_data_required") return "يحتاج Runtime + بيانات";
+    return "جاهز للتوصيل";
+  };
+
+  const stateClass = (model: ModelState) =>
+    model.available ? "online" : model.state === "requires_gpu_runtime" ? "gpu" : "offline";
+
   return (
-    <section className="model-lab">
-      <div className="validation-title">MODEL LAB · HYPERFUSION</div>
+    <section className="model-lab" dir="rtl">
+      <div className="validation-title">مختبر النماذج · Horus Council</div>
       <p className="muted">
-        Real model endpoints only. Unconfigured models remain unavailable and never emit fake scores.
+        الأخضر يعني أن النموذج يشارك فعليًا في التحليل الحالي. الحالات الأخرى تعني أن الكود والـAdapter
+        جاهزان لكن Runtime الحقيقي لم يُنشر بعد؛ لا توجد نتائج وهمية.
       </p>
 
       <div className="model-grid">
         {models.map((model) => (
           <div className="model-chip" key={model.key}>
             <span>{model.key}</span>
-            <strong className={model.available ? "online" : "offline"}>
-              {model.available ? "READY" : "OFFLINE"}
-            </strong>
+            <strong className={stateClass(model)}>{stateLabel(model)}</strong>
             <small>{model.role}</small>
+            {!model.available && model.reason && <small>{model.reason}</small>}
           </div>
         ))}
       </div>
 
       <button className="tournament-button" disabled={busy} onClick={runTournament}>
-        {busy ? "RUNNING MODEL TOURNAMENT…" : "RUN VALIDATION TOURNAMENT"}
+        {busy ? "جارٍ تشغيل المقارنة…" : "تشغيل مقارنة الأداء"}
       </button>
 
       {error && <div className="validation-error">{error}</div>}
