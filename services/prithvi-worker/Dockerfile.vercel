@@ -3,13 +3,12 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN pip install --no-cache-dir \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
-      "torch==2.10.0+cpu" \
       fastapi==0.121.0 \
       "uvicorn[standard]==0.38.0" \
       httpx==0.28.1 \
       numpy==2.3.4 \
-      terratorch==1.2.13
+      onnxruntime==1.31.0 \
+      pydantic==2.12.4
 
 COPY app ./app
 
