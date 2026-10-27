@@ -839,6 +839,8 @@ async def run_serverless_hyperfusion(
             "sentinel1_count": len(s1_scenes),
             "dem_count": len(dem_scenes),
             "landsat_thermal_count": len(thermal_scenes),
+            "enmap_count": 0,
+            "emit_count": 0,
             "olmoearth_year": min(2025, end.year) if end.year >= 2023 else None,
             "olmoearth_source": "Source Cooperative / Ai2",
         },
