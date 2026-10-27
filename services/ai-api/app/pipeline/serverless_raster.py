@@ -85,6 +85,14 @@ def _heatmap_geojson(
     return {"type": "FeatureCollection", "features": features}
 
 
+def score_to_heatmap(
+    score: np.ndarray,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    """Public wrapper used after AOI masking."""
+    return _heatmap_geojson(score, bbox)
+
+
 async def search_pc_collection(
     collection: str,
     bbox: tuple[float, float, float, float],
