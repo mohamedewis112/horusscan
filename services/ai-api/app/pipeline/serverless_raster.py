@@ -287,8 +287,8 @@ async def analyze_sar_serverless(
                 scene,
                 bbox,
                 ("vv", "vh"),
-                width=160,
-                height=160,
+                width=192,
+                height=192,
             )
             for scene in usable
         ],
@@ -445,8 +445,8 @@ async def analyze_thermal_serverless(
                 scene,
                 bbox,
                 (asset,),
-                width=128,
-                height=128,
+                width=192,
+                height=192,
                 unscale=True,
             )
             for scene, asset in usable
