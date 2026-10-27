@@ -92,7 +92,15 @@ PUBLIC_REDISCOVERY_CASES = {
         "radius_m": 600,
         "source": "UNESCO World Heritage Centre component 087-002",
         "split": "validation",
-    },
+    },,
+    "thebes_necropolis": {
+        "name": "Ancient Thebes Necropolis",
+        "lat": 25.731444444,
+        "lon": 32.597027778,
+        "radius_m": 3000,
+        "source": "UNESCO World Heritage Centre component 087-003",
+        "split": "validation",
+    }
 }
 
 PUBLIC_FORBIDDEN_CENTERS = [
