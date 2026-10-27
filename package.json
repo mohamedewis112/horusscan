@@ -1,0 +1,14 @@
+{
+  "name": "horusscan",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "build:web": "npm --workspace apps/web run build",
+    "lint:web": "npm --workspace apps/web run lint",
+    "typecheck:web": "npm --workspace apps/web run typecheck"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
