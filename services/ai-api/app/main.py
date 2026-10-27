@@ -60,6 +60,29 @@ class ValidationRunRequest(BaseModel):
     max_cloud: float = Field(default=20.0, ge=0.0, le=100.0)
     include_unlabeled_controls: bool = True
 
+PUBLIC_REDISCOVERY_CASES = {
+    "karnak": {
+        "name": "Temple of Karnak",
+        "lat": 25.718888889,
+        "lon": 32.657250000,
+        "radius_m": 900,
+        "source": "UNESCO World Heritage Centre component 087-001",
+    },
+    "luxor": {
+        "name": "Temple of Luxor",
+        "lat": 25.699861111,
+        "lon": 32.639027778,
+        "radius_m": 600,
+        "source": "UNESCO World Heritage Centre component 087-002",
+    },
+}
+
+PUBLIC_FORBIDDEN_CENTERS = [
+    (25.718888889, 32.657250000, 900),
+    (25.699861111, 32.639027778, 600),
+    (25.731444444, 32.597027778, 3000),
+]
+
 
 def validate_bbox(bbox: tuple[float, float, float, float]) -> None:
     min_lon, min_lat, max_lon, max_lat = bbox
@@ -978,5 +1001,99 @@ async def smoke_olmoearth() -> dict:
         "scientific_note": (
             "OlmoEarth v1.3 annual foundation-model embedding anomaly rank. "
             "It is not an archaeological probability and uses the 2025 annual embedding."
+        ),
+    }
+
+
+
+@app.get("/v1/smoke/rediscovery/{case_key}")
+async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    from datetime import timedelta, timezone
+
+    from app.pipeline.serverless_raster import run_serverless_hyperfusion
+    from app.validation.benchmark import (
+        ValidationCase,
+        bbox_from_center,
+        deterministic_control,
+        evaluate_heatmap,
+    )
+
+    fixture = PUBLIC_REDISCOVERY_CASES.get(case_key)
+    if fixture is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown public rediscovery case: {case_key}",
+        )
+
+    positive = ValidationCase(
+        name=fixture["name"],
+        case_type="positive",
+        lat=float(fixture["lat"]),
+        lon=float(fixture["lon"]),
+        radius_m=int(fixture["radius_m"]),
+        site_id=None,
+    )
+    case = (
+        deterministic_control(
+            positive.lat,
+            positive.lon,
+            positive.radius_m,
+            0 if case_key == "karnak" else 1,
+            forbidden_centers=PUBLIC_FORBIDDEN_CENTERS,
+        )
+        if control
+        else positive
+    )
+
+    bbox = bbox_from_center(case.lat, case.lon, case.radius_m)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=730)
+
+    try:
+        result = await run_serverless_hyperfusion(
+            bbox,
+            start,
+            end,
+            max_cloud=25.0,
+        )
+        evaluation = evaluate_heatmap(
+            result["fusion"]["heatmap"],
+            center_lat=case.lat,
+            center_lon=case.lon,
+            radius_m=case.radius_m,
+        )
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "case_key": case_key,
+            "case_type": case.case_type,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    return {
+        "real_data": True,
+        "status": "completed",
+        "case_key": case_key,
+        "case_name": case.name,
+        "case_type": case.case_type,
+        "public_source": fixture["source"] if not control else None,
+        "evaluation": {
+            "rediscovery_score": evaluation.rediscovery_score,
+            "center_block_percentile": evaluation.center_block_percentile,
+            "concentration_ratio": evaluation.concentration_ratio,
+            "detected_high_priority": evaluation.detected_high_priority,
+        },
+        "branches_used": result["branches_used"],
+        "fusion_summary": result["fusion"]["summary"],
+        "limitations": result["limitations"],
+        "scientific_note": (
+            "Known-site case uses a public UNESCO component coordinate. "
+            "Control cases are unlabeled comparisons, not confirmed archaeological negatives. "
+            "Rediscovery score is a ranking metric, not an archaeological probability."
         ),
     }
