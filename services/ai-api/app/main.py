@@ -408,7 +408,7 @@ async def run_validation_benchmark(
     request: ValidationRunRequest,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
-    if request.split not in {"calibration", "validation", "blind_test", "all"}:
+    if request.split not in {"calibration", "validation", "blind_test"}:
         raise HTTPException(status_code=422, detail="Invalid validation split.")
 
     token = bearer_from_header(authorization)
@@ -418,6 +418,14 @@ async def run_validation_benchmark(
     try:
         persistence = SupabasePersistence()
         user_id = await persistence.authenticate(token)
+        if request.split == "blind_test" and await persistence.has_completed_blind_run(
+            user_id,
+            request.dataset_version,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Blind test already completed for this dataset. The canonical result is locked.",
+            )
         sites = await persistence.list_validation_sites(
             request.dataset_version,
             request.split,
@@ -447,6 +455,14 @@ async def run_validation_benchmark(
 
     rows: list[dict] = []
     completed = 0
+    forbidden_centers = [
+        (
+            float(site["latitude"]),
+            float(site["longitude"]),
+            int(site["evaluation_radius_m"]),
+        )
+        for site in sites
+    ]
 
     try:
         for index, site in enumerate(sites):
@@ -467,6 +483,7 @@ async def run_validation_benchmark(
                         positive.lon,
                         positive.radius_m,
                         index,
+                        forbidden_centers=forbidden_centers,
                     )
                 )
 
