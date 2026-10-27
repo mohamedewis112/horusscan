@@ -22,10 +22,18 @@ class ModelSpec:
             self.key == "olmoearth"
             and os.getenv("OLMOEARTH_SERVERLESS_ENABLED", "false").lower() == "true"
         )
-        available = bool(endpoint) or local_olmo
+        local_physics_sar = (
+            self.key == "physics_sar"
+            and os.getenv("PHYSICS_SAR_SERVERLESS_ENABLED", "false").lower() == "true"
+        )
+        available = bool(endpoint) or local_olmo or local_physics_sar
         if local_olmo:
             reason = None
             inference_mode = "public_precomputed_global_embeddings"
+            state = "active"
+        elif local_physics_sar:
+            reason = None
+            inference_mode = "local_serverless_physics_adjudicator"
             state = "active"
         elif endpoint:
             reason = None
@@ -124,7 +132,7 @@ MODEL_SPECS = (
     ModelSpec(
         key="physics_sar",
         family="physics-informed-model",
-        role="soil_moisture_roughness_inversion",
+        role="radar_physics_corroboration",
         endpoint_env="PHYSICS_SAR_INFERENCE_URL",
         checkpoint_env="PHYSICS_SAR_CHECKPOINT",
         modalities=("sentinel1_rtc", "optical_context"),
