@@ -691,29 +691,21 @@ async def smoke_spectral() -> dict:
     start = end - timedelta(days=180)
 
     try:
-        from app.pipeline.raster_baseline import analyze_scene
+        from app.pipeline.serverless_raster import (
+            analyze_sentinel2_serverless,
+            search_pc_sentinel2,
+        )
     except Exception as exc:
         return {
             "real_data": False,
             "status": "failed",
-            "stage": "import_pipeline",
+            "stage": "import_serverless_pipeline",
             "error_type": type(exc).__name__,
             "error": str(exc),
         }
 
     try:
-        from app.providers.stac import search_open_cog_sentinel2
-    except Exception as exc:
-        return {
-            "real_data": False,
-            "status": "failed",
-            "stage": "import_provider",
-            "error_type": type(exc).__name__,
-            "error": str(exc),
-        }
-
-    try:
-        scenes = await search_open_cog_sentinel2(
+        scenes = await search_pc_sentinel2(
             bbox,
             start,
             end,
@@ -724,7 +716,7 @@ async def smoke_spectral() -> dict:
         return {
             "real_data": False,
             "status": "failed",
-            "stage": "stac_search",
+            "stage": "pc_stac_search",
             "error_type": type(exc).__name__,
             "error": str(exc),
         }
@@ -733,7 +725,7 @@ async def smoke_spectral() -> dict:
         return {
             "real_data": True,
             "status": "inconclusive",
-            "stage": "stac_search",
+            "stage": "pc_stac_search",
             "reason": "No suitable Sentinel-2 scene found in smoke-test window.",
         }
 
@@ -743,42 +735,35 @@ async def smoke_spectral() -> dict:
     )
 
     try:
-        result = await asyncio.to_thread(
-            analyze_scene,
-            scene.item_id,
-            scene.cloud_cover,
-            scene.assets,
-            bbox,
-        )
+        result = await analyze_sentinel2_serverless(scene, bbox)
     except Exception as exc:
         return {
             "real_data": True,
             "status": "failed",
-            "stage": "raster_analysis",
+            "stage": "pc_numpy_tile_analysis",
             "error_type": type(exc).__name__,
             "error": str(exc),
             "scene": {
                 "id": scene.item_id,
                 "datetime": scene.datetime,
                 "cloud_cover": scene.cloud_cover,
-                "provider": scene.provider,
+                "collection": scene.collection,
             },
-            "asset_keys": sorted(scene.assets.keys()),
         }
 
     return {
         "real_data": True,
         "status": "completed",
-        "source": scene.provider,
+        "source": "microsoft-planetary-computer-titiler",
         "scene": {
             "id": scene.item_id,
             "datetime": scene.datetime,
             "cloud_cover": scene.cloud_cover,
         },
-        "summary": result.summary,
+        "summary": result["summary"],
         "scientific_note": (
-            "Infrastructure smoke test using real Sentinel-2 pixels. "
-            "The anomaly rank is not an archaeological probability."
+            "Infrastructure smoke test using real Sentinel-2 pixels delivered as a "
+            "Planetary Computer NumpyTile. The anomaly rank is not archaeological probability."
         ),
     }
 
