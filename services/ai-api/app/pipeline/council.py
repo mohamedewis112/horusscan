@@ -142,6 +142,101 @@ def _find_candidates(
     return selected
 
 
+def _percentile_rank(surface: np.ndarray, value: float) -> float:
+    samples = surface[np.isfinite(surface)]
+    if not samples.size:
+        return 0.0
+    return float(np.mean(samples <= value))
+
+
+def _review_candidate_across_scales(
+    fused: np.ndarray,
+    row: int,
+    col: int,
+) -> dict[str, Any]:
+    rounds = [
+        ("fine", 1),
+        ("medium", 3),
+        ("broad", 6),
+    ]
+    details: list[dict[str, Any]] = []
+    passed = 0
+
+    for name, radius in rounds:
+        score = _local_mean(fused, row, col, radius=radius)
+        percentile = _percentile_rank(fused, score)
+        accepted = percentile >= 0.85
+        if accepted:
+            passed += 1
+        details.append(
+            {
+                "round": name,
+                "radius_cells": radius,
+                "local_score": round(score, 4),
+                "percentile": round(percentile, 4),
+                "accepted": accepted,
+            }
+        )
+
+    return {
+        "round_count": len(rounds),
+        "passed_rounds": passed,
+        "stability_score": round(passed / len(rounds), 4),
+        "verdict": (
+            "stable_across_scales"
+            if passed == len(rounds)
+            else "partially_stable"
+            if passed >= 2
+            else "scale_sensitive"
+        ),
+        "rounds": details,
+    }
+
+
+def _coverage_summary(
+    fused: np.ndarray,
+    evidence: dict[str, np.ndarray],
+) -> dict[str, Any]:
+    valid_mask = np.isfinite(fused)
+    values = fused[valid_mask]
+    total = int(fused.size)
+    valid = int(values.size)
+    groups = sorted({_group(name) for name in evidence})
+
+    if not values.size:
+        return {
+            "valid_pixels": 0,
+            "total_pixels": total,
+            "coverage_fraction": 0.0,
+            "branch_count": len(evidence),
+            "independent_group_count": len(groups),
+            "independent_groups": groups,
+            "review_rounds": 3,
+        }
+
+    return {
+        "valid_pixels": valid,
+        "total_pixels": total,
+        "coverage_fraction": round(valid / max(total, 1), 4),
+        "branch_count": len(evidence),
+        "independent_group_count": len(groups),
+        "independent_groups": groups,
+        "review_rounds": 3,
+        "score_distribution": {
+            "p50": round(float(np.quantile(values, 0.50)), 4),
+            "p75": round(float(np.quantile(values, 0.75)), 4),
+            "p90": round(float(np.quantile(values, 0.90)), 4),
+            "p95": round(float(np.quantile(values, 0.95)), 4),
+            "p99": round(float(np.quantile(values, 0.99)), 4),
+        },
+        "area_share_above_absolute_score": {
+            "0.35": round(float(np.mean(values >= 0.35)), 4),
+            "0.50": round(float(np.mean(values >= 0.50)), 4),
+            "0.70": round(float(np.mean(values >= 0.70)), 4),
+        },
+    }
+
+
 def _alternative_explanations(branch_scores: dict[str, float]) -> list[str]:
     def score(name: str) -> float:
         for key, value in branch_scores.items():
@@ -262,6 +357,18 @@ def build_council_report(
             )
         )
 
+        multi_scale_review = _review_candidate_across_scales(
+            fused,
+            row,
+            col,
+        )
+
+        # Repeated review can reduce confidence for peaks that disappear when
+        # examined at broader spatial context, but it never fabricates a higher
+        # archaeological probability.
+        stability_factor = 0.85 + 0.15 * multi_scale_review["stability_score"]
+        evidence_confidence = evidence_confidence * stability_factor
+
         lon, lat = _position_for_cell(row, col, fused.shape, bbox)
         cell_dx, cell_dy = _cell_size_m(lat, fused.shape, bbox)
         # Public research output is deliberately coarse. Exact subsurface-target
@@ -294,6 +401,7 @@ def build_council_report(
                 },
                 "spatial_uncertainty_m": round(spatial_uncertainty_m, 1),
                 "priority": _priority(evidence_confidence),
+                "multi_scale_review": multi_scale_review,
                 "independent_support_groups": sorted(groups_supporting),
                 "independent_support_count": len(groups_supporting),
                 "independent_groups_present": len(groups_present),
@@ -345,11 +453,13 @@ def build_council_report(
         "version": "horus-council-v1",
         "fusion_profile": fusion_profile,
         "candidate_count": len(reports),
+        "coverage_summary": _coverage_summary(fused, evidence),
         "candidates": reports,
         "method": {
             "deliberation": "structured_evidence_adjudication_not_freeform_chat",
             "evidence_independence": "correlated models are grouped before consensus",
             "confidence": "calibrated ranking index with disagreement-derived uncertainty; not probability of archaeology",
             "candidate_generation": "local maxima summarized into coarse research zones; exact target coordinates withheld",
+            "deep_review": "each candidate is re-evaluated at fine, medium, and broad spatial context before final confidence",
         },
     }
