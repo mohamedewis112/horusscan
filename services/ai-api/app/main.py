@@ -1029,7 +1029,7 @@ async def smoke_olmoearth() -> dict:
 
 
 @app.get("/v1/smoke/rediscovery/{case_key}")
-async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
+async def smoke_rediscovery(case_key: str, control: bool = False, profile: str = "equal_v0") -> dict:
     if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
         raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
 
@@ -1042,6 +1042,9 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
         deterministic_control,
         evaluate_heatmap,
     )
+
+    if profile not in {"equal_v0", "calibration_v1"}:
+        raise HTTPException(status_code=422, detail=f"Unknown fusion profile: {profile}")
 
     fixture = PUBLIC_REDISCOVERY_CASES.get(case_key)
     if fixture is None:
@@ -1081,6 +1084,7 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
             end,
             max_cloud=25.0,
             include_branch_heatmaps=True,
+            fusion_profile=profile,
         )
         evaluation = evaluate_heatmap(
             result["fusion"]["heatmap"],
@@ -1119,6 +1123,7 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
         "case_key": case_key,
         "case_name": case.name,
         "case_type": case.case_type,
+        "fusion_profile": profile,
         "public_source": fixture["source"] if not control else None,
         "split": fixture.get("split"),
         "evaluation": {
