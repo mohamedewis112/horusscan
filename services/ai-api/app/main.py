@@ -697,6 +697,14 @@ async def run_hyperfusion_proxy(
             start = datetime.fromisoformat(str(payload["start"]).replace("Z", "+00:00"))
             end = datetime.fromisoformat(str(payload["end"]).replace("Z", "+00:00"))
             max_cloud = float(payload.get("max_cloud", 20.0))
+            fusion_profile = str(
+                payload.get(
+                    "fusion_profile",
+                    os.getenv("HYPERFUSION_PROFILE", "calibration_v1"),
+                )
+            )
+            if fusion_profile not in {"equal_v0", "calibration_v1"}:
+                raise ValueError(f"Unknown fusion profile: {fusion_profile}")
         except (KeyError, TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"Invalid HyperFusion payload: {exc}") from exc
 
@@ -707,6 +715,7 @@ async def run_hyperfusion_proxy(
                 start,
                 end,
                 max_cloud=max_cloud,
+                fusion_profile=fusion_profile,
             )
         except Exception as exc:
             raise HTTPException(
