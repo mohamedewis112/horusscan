@@ -16,6 +16,7 @@ type ValidationMetrics = {
 
 type ValidationResponse = {
   validation_run_id: string;
+  status: string;
   dataset_version: string;
   split: string;
   completed_cases: number;
@@ -122,7 +123,7 @@ export default function ValidationPanel() {
             <strong>{percent(result.metrics.control_high_priority_flag_rate_proxy)}</strong>
           </div>
           <small>
-            {result.completed_cases}/{result.total_cases} cases · {result.split} · controls are
+            {result.status.toUpperCase()} · {result.completed_cases}/{result.total_cases} cases · {result.split} · controls are
             unlabeled, not confirmed negatives.
           </small>
         </div>
