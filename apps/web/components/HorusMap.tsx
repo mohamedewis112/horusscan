@@ -6,20 +6,12 @@ import { supabase } from "../lib/supabase";
 
 type Position = [number, number];
 
-type MultisensorResponse = {
+type HyperFusionResponse = {
   real_data: boolean;
   persisted: boolean;
-  sources: {
-    spectral: string | null;
-    sar: string | null;
-    terrain: string | null;
-  };
-  spectral: {
-    scene: { id: string; datetime: string; cloud_cover: number | null };
-    summary: SensorSummary;
-  };
-  sar: { summary: SensorSummary | null; error: string | null };
-  terrain: { summary: SensorSummary | null; error: string | null };
+  engine: string;
+  branches_used: string[];
+  branches: Record<string, SensorSummary>;
   fusion: {
     summary: SensorSummary & {
       sensors?: string[];
@@ -28,6 +20,15 @@ type MultisensorResponse = {
     };
     heatmap: FeatureCollection;
   };
+  discovery: {
+    sentinel2_count: number;
+    sentinel1_count: number;
+    dem_count: number;
+    enmap_count: number;
+    landsat_thermal_count: number;
+    emit_count: number;
+  };
+  limitations: Record<string, unknown>;
   scientific_status: string;
 };
 
@@ -65,7 +66,7 @@ export default function HorusMap() {
   const [start, setStart] = useState(isoDate(120));
   const [end, setEnd] = useState(isoDate(1));
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<MultisensorResponse | null>(null);
+  const [result, setResult] = useState<HyperFusionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -275,7 +276,7 @@ export default function HorusMap() {
           start,
           end,
           max_cloud: 20,
-          sensors: ["sentinel-2", "sentinel-1-rtc", "copernicus-dem-glo-30"],
+          sensors: ["sentinel-2", "sentinel-1-rtc", "copernicus-dem-glo-30", "enmap-l2a", "landsat-thermal", "emit-discovery"],
         },
       })
       .select("id")
@@ -299,7 +300,7 @@ export default function HorusMap() {
     try {
       const persisted = await createPersistedRun();
       const base = process.env.NEXT_PUBLIC_AI_API_URL ?? "http://localhost:8000";
-      const response = await fetch(`${base}/v1/analysis/multisensor-baseline`, {
+      const response = await fetch(`${base}/v1/analysis/hyperfusion-v0`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -317,7 +318,7 @@ export default function HorusMap() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail ?? "Analysis failed.");
-      setResult(payload as MultisensorResponse);
+      setResult(payload as HyperFusionResponse);
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Analysis failed.");
     } finally {
@@ -341,7 +342,7 @@ export default function HorusMap() {
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
         </label>
         <button className="primary" disabled={!bbox || busy || !signedIn} onClick={initiateScan}>
-          {busy ? "MULTISENSOR ANALYSIS…" : "INITIATE HORUS SCAN"}
+          {busy ? "HYPERFUSION ANALYSIS…" : "INITIATE HORUS SCAN"}
         </button>
       </div>
 
@@ -373,10 +374,9 @@ export default function HorusMap() {
       {error && <div className="result-card error">{error}</div>}
       {result && (
         <div className="result-card">
-          <strong>REAL MULTISENSOR DATA · PERSISTED {result.persisted ? "✓" : "—"}</strong>
-          <span>Optical: {result.sources.spectral ?? "unavailable"}</span>
-          <span>SAR: {result.sources.sar ?? "unavailable"}</span>
-          <span>Terrain: {result.sources.terrain ?? "unavailable"}</span>
+          <strong>REAL HYPERFUSION DATA · PERSISTED {result.persisted ? "✓" : "—"}</strong>
+          <span>Engine: {result.engine}</span>
+          <span>Evidence branches: {result.branches_used.join(" · ")}</span>
           <span>
             Evidence agreement: {result.fusion.summary.evidence_agreement ?? "inconclusive"}
           </span>
@@ -385,8 +385,12 @@ export default function HorusMap() {
               ? result.fusion.summary.p90.toFixed(3)
               : "n/a"}
           </span>
-          {result.sar.error && <small>SAR limitation: {result.sar.error}</small>}
-          {result.terrain.error && <small>Terrain limitation: {result.terrain.error}</small>}
+          <span>
+            Advanced coverage: EnMAP {result.discovery.enmap_count} · Thermal {result.discovery.landsat_thermal_count} · EMIT {result.discovery.emit_count}
+          </span>
+          {Object.keys(result.limitations).length > 0 && (
+            <small>Unavailable/limited branches: {Object.keys(result.limitations).join(", ")}</small>
+          )}
           <small>{result.scientific_status}</small>
         </div>
       )}
