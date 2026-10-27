@@ -1,0 +1,32 @@
+[project]
+name = "horusscan-foundation-worker"
+version = "0.2.0"
+description = "Isolated foundation-model worker for HorusScan"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi==0.121.0",
+  "uvicorn[standard]==0.38.0",
+  "httpx==0.28.1",
+  "numpy==2.3.4",
+  "pillow==12.0.0",
+  "torch==2.10.0",
+  "transformers==5.20.2"
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2", "ruff==0.14.2"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.vercel]
+entrypoint = "worker.main:app"
