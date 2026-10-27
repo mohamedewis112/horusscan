@@ -30,6 +30,7 @@ _ADAPTERS = {
     "spectralearth_fm": OptionalExternalAdapter("spectralearth_fm"),
     "terraflow": OptionalExternalAdapter("terraflow"),
     "olmoearth": OptionalExternalAdapter("olmoearth"),
+    "thermal_inertia": OptionalExternalAdapter("thermal_inertia"),
     "physics_sar": OptionalExternalAdapter("physics_sar"),
     "sam3_1": OptionalExternalAdapter("sam3_1"),
 }
