@@ -26,11 +26,24 @@ class ModelSpec:
         if local_olmo:
             reason = None
             inference_mode = "public_precomputed_global_embeddings"
+            state = "active"
         elif endpoint:
             reason = None
             inference_mode = "remote_inference_endpoint"
+            state = "active"
         else:
-            reason = f"Set {self.endpoint_env} to a real inference endpoint."
+            if self.key in {"dinov3_satellite", "sam3_1"}:
+                reason = "Real checkpoint is registered but a CUDA/GPU runtime is not deployed yet."
+                state = "requires_gpu_runtime"
+            elif self.key == "prithvi_eo_2":
+                reason = "Official Prithvi-EO-2.0 tiny/100M checkpoints exist; a runtime is not deployed yet."
+                state = "runtime_not_deployed"
+            elif self.key in {"thermal_inertia", "physics_sar"}:
+                reason = "Physics branch requires its real inference runtime and suitable source observations."
+                state = "runtime_and_data_required"
+            else:
+                reason = f"Set {self.endpoint_env} to a real inference endpoint."
+                state = "runtime_not_deployed"
             inference_mode = "unavailable"
         return {
             **asdict(self),
@@ -38,6 +51,7 @@ class ModelSpec:
             "endpoint_configured": bool(endpoint),
             "checkpoint_configured": bool(checkpoint) if self.checkpoint_env else None,
             "inference_mode": inference_mode,
+            "state": state,
             "reason": reason,
         }
 
