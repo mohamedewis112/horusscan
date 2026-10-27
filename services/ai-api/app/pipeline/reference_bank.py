@@ -215,4 +215,8 @@ REFERENCE_FINGERPRINTS: dict[str, dict[str, float]] = {
     "tuna_el_gebel": {"spectral": 0.178207, "sar": 0.180187, "terrain": 0.107854, "thermal": 0.248184, "olmoearth": 0.329117},
     "naga_ed_der": {"spectral": 0.082583, "sar": 0.198313, "terrain": 0.299795, "thermal": 0.138450, "olmoearth": 0.199833},
     "gebel_el_muzawaka": {"spectral": 0.171458, "sar": 0.272242, "terrain": 0.205173, "thermal": 0.169190, "olmoearth": 0.280389},
+    "lisht": {"spectral": 0.254910, "sar": 0.254998, "terrain": 0.273738, "thermal": 0.299775, "olmoearth": 0.310987},
+    "meir": {"spectral": 0.132465, "sar": 0.181385, "terrain": 0.235157, "thermal": 0.162101, "olmoearth": 0.243531},
+    "el_hawawish": {"spectral": 0.112655, "sar": 0.242684, "terrain": 0.362046, "thermal": 0.224741, "olmoearth": 0.238382},
+    "naqada": {"spectral": 0.181168, "sar": 0.304261, "terrain": 0.245638, "thermal": 0.300364, "olmoearth": 0.308589},
 }
