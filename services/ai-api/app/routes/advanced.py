@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from app.persistence import PersistenceUnavailable, SupabasePersistence
 from app.pipeline.advanced_sensors import analyze_hyperspectral_scene, analyze_thermal_stack
 from app.pipeline.multisensor import analyze_sar_stack, analyze_terrain, fuse_evidence_layers
 from app.pipeline.raster_baseline import analyze_scene
@@ -29,6 +32,9 @@ class HyperFusionRequest(BaseModel):
     start: datetime
     end: datetime
     max_cloud: float = Field(default=20.0, ge=0.0, le=100.0)
+    project_id: str | None = None
+    aoi_id: str | None = None
+    analysis_run_id: str | None = None
 
 
 def _validate_bbox(bbox: tuple[float, float, float, float]) -> None:
@@ -37,9 +43,48 @@ def _validate_bbox(bbox: tuple[float, float, float, float]) -> None:
         raise HTTPException(status_code=422, detail="Invalid bounding box.")
 
 
+def _bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Invalid Authorization header.")
+    return token
+
+
 @router.post("/hyperfusion-v0")
-async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
+async def run_hyperfusion_v0(
+    request: HyperFusionRequest,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
     _validate_bbox(request.bbox)
+
+    persistence: SupabasePersistence | None = None
+    persist_requested = all(
+        [request.project_id, request.aoi_id, request.analysis_run_id, authorization]
+    )
+    if persist_requested:
+        try:
+            persistence = SupabasePersistence()
+            token = _bearer(authorization)
+            assert token is not None
+            user_id = await persistence.authenticate(token)
+            await persistence.assert_run_ownership(
+                user_id,
+                request.project_id or "",
+                request.aoi_id or "",
+                request.analysis_run_id or "",
+            )
+            await persistence.update_run(
+                request.analysis_run_id or "",
+                {
+                    "status": "discovering",
+                    "progress_stage": "advanced_sensor_discovery",
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                },
+            )
+        except (PersistenceUnavailable, httpx.HTTPError, PermissionError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     s2_task = search_open_cog_sentinel2(
         request.bbox,
@@ -93,14 +138,36 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
     }
 
     if not s2_scenes:
+        if persistence and request.analysis_run_id:
+            await persistence.update_run(
+                request.analysis_run_id,
+                {
+                    "status": "inconclusive",
+                    "progress_stage": "insufficient_core_data",
+                    "error_message": "No suitable Sentinel-2 observation.",
+                    "finished_at": datetime.utcnow().isoformat() + "Z",
+                },
+            )
         raise HTTPException(
             status_code=404,
             detail="No suitable Sentinel-2 observation; core HyperFusion cannot run.",
         )
 
+    if persistence and request.analysis_run_id:
+        await persistence.update_run(
+            request.analysis_run_id,
+            {"status": "preprocessing", "progress_stage": "advanced_sensor_preprocessing"},
+        )
+
     evidence = {}
     branches = {}
     limitations = {}
+    layer_payloads = []
+
+    sar = None
+    terrain = None
+    hyperspectral_result = None
+    thermal = None
 
     s2_scene = min(
         s2_scenes,
@@ -115,12 +182,27 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
     )
     evidence["spectral"] = spectral.score
     branches["spectral"] = spectral.summary
+    layer_payloads.append(
+        (
+            "spectral_anomaly",
+            spectral.summary,
+            {
+                "provider": s2_scene.provider,
+                "collection": s2_scene.collection,
+                "item_id": s2_scene.item_id,
+                "datetime": s2_scene.datetime,
+                "bands": ["B02", "B04", "B08", "B11"],
+            },
+            spectral.heatmap,
+        )
+    )
 
     if s1_scenes:
         try:
             sar = await asyncio.to_thread(analyze_sar_stack, s1_scenes, request.bbox)
             evidence["sar"] = sar.score
             branches["sar"] = sar.summary
+            layer_payloads.append(("sar_anomaly", sar.summary, sar.provenance, sar.heatmap))
         except Exception as exc:
             limitations["sar"] = f"{type(exc).__name__}: {exc}"
 
@@ -129,11 +211,13 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
             terrain = await asyncio.to_thread(analyze_terrain, dem_scenes, request.bbox)
             evidence["terrain"] = terrain.score
             branches["terrain"] = terrain.summary
+            layer_payloads.append(
+                ("terrain_anomaly", terrain.summary, terrain.provenance, terrain.heatmap)
+            )
         except Exception as exc:
             limitations["terrain"] = f"{type(exc).__name__}: {exc}"
 
     if enmap_scenes:
-        hyperspectral_result = None
         hyperspectral_errors = []
         for scene in enmap_scenes:
             try:
@@ -148,6 +232,14 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
         if hyperspectral_result:
             evidence["hyperspectral"] = hyperspectral_result.score
             branches["hyperspectral"] = hyperspectral_result.summary
+            layer_payloads.append(
+                (
+                    "hyperspectral_anomaly",
+                    hyperspectral_result.summary,
+                    hyperspectral_result.provenance,
+                    hyperspectral_result.heatmap,
+                )
+            )
         elif hyperspectral_errors:
             limitations["hyperspectral"] = hyperspectral_errors[:3]
 
@@ -160,17 +252,72 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
             )
             evidence["thermal"] = thermal.score
             branches["thermal"] = thermal.summary
+            layer_payloads.append(
+                ("thermal_persistence_anomaly", thermal.summary, thermal.provenance, thermal.heatmap)
+            )
         except Exception as exc:
             limitations["thermal"] = f"{type(exc).__name__}: {exc}"
+
+    if persistence and request.analysis_run_id:
+        await persistence.update_run(
+            request.analysis_run_id,
+            {"status": "fusing", "progress_stage": "hyperfusion_v0"},
+        )
 
     fusion = await asyncio.to_thread(
         fuse_evidence_layers,
         evidence,
         request.bbox,
     )
+    layer_payloads.append(
+        (
+            "horus_hyperfusion_v0",
+            fusion.summary,
+            fusion.provenance,
+            fusion.heatmap,
+        )
+    )
+
+    if persistence and request.analysis_run_id:
+        scene_records = []
+        scene_records.append((s2_scene, "spectral", 0))
+        scene_records.extend((scene, "sar", idx) for idx, scene in enumerate(s1_scenes))
+        scene_records.extend((scene, "terrain", idx) for idx, scene in enumerate(dem_scenes))
+        scene_records.extend((scene, "hyperspectral", idx) for idx, scene in enumerate(enmap_scenes))
+        scene_records.extend((scene, "thermal", idx) for idx, scene in enumerate(thermal_scenes))
+
+        for scene, role, ordinal in scene_records:
+            scene_id = await persistence.store_scene(scene, role)
+            await persistence.link_scene(
+                request.analysis_run_id,
+                scene_id,
+                role,
+                ordinal,
+            )
+
+        for layer_type, stats, provenance, data in layer_payloads:
+            await persistence.store_layer(
+                request.analysis_run_id,
+                layer_type,
+                stats,
+                provenance,
+                data,
+            )
+
+        quality = min(1.0, 0.35 + 0.13 * len(evidence))
+        await persistence.update_run(
+            request.analysis_run_id,
+            {
+                "status": "completed",
+                "progress_stage": "complete",
+                "data_quality_score": float(quality),
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            },
+        )
 
     return {
         "real_data": True,
+        "persisted": bool(persistence and request.analysis_run_id),
         "engine": "horus-hyperfusion-v0",
         "branches_used": list(evidence),
         "branches": branches,
@@ -195,7 +342,8 @@ async def run_hyperfusion_v0(request: HyperFusionRequest) -> dict:
         "discovery_errors": discovery_errors,
         "scientific_status": (
             "Evidence fusion across available real optical, radar, terrain, hyperspectral and "
-            "thermal observations. The fused rank is not a calibrated probability and does not "
-            "confirm a subsurface structure."
+            "thermal observations. Thermal branch is persistence analysis, not true day/night "
+            "thermal inertia. The fused rank is not a calibrated probability and does not confirm "
+            "a subsurface structure."
         ),
     }
