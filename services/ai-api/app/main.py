@@ -683,8 +683,8 @@ async def list_foundation_models_proxy() -> dict:
     return {
         "models": get_model_registry(),
         "note": (
-            "available=true only means a real inference endpoint is configured. "
-            "HorusScan rejects responses that do not certify real_inference=true."
+            "available=true means a real inference path is configured, either a verified "
+            "remote endpoint or a supported public embedding source. Synthetic readiness is rejected."
         ),
     }
 
