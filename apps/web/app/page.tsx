@@ -1,4 +1,5 @@
 import HorusMap from "../components/HorusMap";
+import ValidationPanel from "../components/ValidationPanel";
 
 export default function HomePage() {
   return (
@@ -15,12 +16,13 @@ export default function HomePage() {
             Results are evidence-based candidates, not excavation confirmation.
           </p>
           <div className="status">
-            <b>Milestone 1</b>
+            <b>Milestone 3 · Scientific Validation</b>
             <span className="muted">
-              Draw an AOI, discover real Sentinel-2 scenes, process multispectral
-              data, and generate a reproducible anomaly layer.
+              Multisensor analysis with geographic holdout, known-site rediscovery,
+              unlabeled controls, and a reserved final-test split.
             </span>
           </div>
+          <ValidationPanel />
         </aside>
         <HorusMap />
       </section>
