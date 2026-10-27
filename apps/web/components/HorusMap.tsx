@@ -93,6 +93,7 @@ export default function HorusMap() {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    maplibregl.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: "https://demotiles.maplibre.org/style.json",
@@ -101,7 +102,7 @@ export default function HorusMap() {
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
-    return () => map.remove();
+    return () => { map.remove(); mapRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -209,14 +210,16 @@ export default function HorusMap() {
   }, [points, polygon]);
 
   async function signIn() {
-    if (!supabase) return;
+    if (!supabase) { setError("Account service is not configured."); return; }
+    if (!email.trim() || !password) { setError("Enter your email and password first."); return; }
     setError(null);
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) setError(authError.message);
   }
 
   async function signUp() {
-    if (!supabase) return;
+    if (!supabase) { setError("Account service is not configured."); return; }
+    if (!email.trim() || !password) { setError("Enter your email and password first."); return; }
     setError(null);
     const { error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) setError(authError.message);
@@ -353,17 +356,20 @@ export default function HorusMap() {
 
       <div className="auth-panel">
         <strong>{persistenceEnabled ? authStatus : "Live preview mode · scans are not persisted"}</strong>
+        {!persistenceEnabled && <span role="status">{authStatus}</span>}
         {!signedIn && (
           <>
             <input
               type="email"
               placeholder="Research email"
+              aria-label="Research email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
             <input
               type="password"
               placeholder="Password"
+              aria-label="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
