@@ -676,3 +676,61 @@ async def segment_candidates_proxy(payload: dict) -> dict:
     from app.routes.geometry import GeometryRequest, segment_candidates
 
     return await segment_candidates(GeometryRequest(**payload))
+
+
+
+@app.get("/v1/smoke/spectral")
+async def smoke_spectral() -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    from datetime import timedelta, timezone
+
+    from app.pipeline.raster_baseline import analyze_scene
+    from app.providers.stac import search_open_cog_sentinel2
+
+    # Small public test AOI for infrastructure validation only; not a discovery claim.
+    bbox = (31.20, 29.92, 31.22, 29.94)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=180)
+
+    scenes = await search_open_cog_sentinel2(
+        bbox,
+        start,
+        end,
+        max_cloud=25.0,
+        limit=3,
+    )
+    if not scenes:
+        return {
+            "real_data": True,
+            "status": "inconclusive",
+            "reason": "No suitable Sentinel-2 scene found in smoke-test window.",
+        }
+
+    scene = min(
+        scenes,
+        key=lambda item: item.cloud_cover if item.cloud_cover is not None else 101.0,
+    )
+    result = await asyncio.to_thread(
+        analyze_scene,
+        scene.item_id,
+        scene.cloud_cover,
+        scene.assets,
+        bbox,
+    )
+    return {
+        "real_data": True,
+        "status": "completed",
+        "source": scene.provider,
+        "scene": {
+            "id": scene.item_id,
+            "datetime": scene.datetime,
+            "cloud_cover": scene.cloud_cover,
+        },
+        "summary": result.summary,
+        "scientific_note": (
+            "Infrastructure smoke test using real Sentinel-2 pixels. "
+            "The anomaly rank is not an archaeological probability."
+        ),
+    }
