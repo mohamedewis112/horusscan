@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -10,6 +11,21 @@ from app.providers.stac import Scene
 
 class PersistenceUnavailable(RuntimeError):
     pass
+
+
+def _sanitize_assets(assets: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in assets.items():
+        if not isinstance(value, dict):
+            sanitized[key] = value
+            continue
+        clean = dict(value)
+        href = clean.get("href")
+        if isinstance(href, str):
+            parts = urlsplit(href)
+            clean["href"] = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        sanitized[key] = clean
+    return sanitized
 
 
 class SupabasePersistence:
@@ -90,7 +106,7 @@ class SupabasePersistence:
             "sensor": sensor,
             "acquisition_time": scene.datetime,
             "cloud_cover": scene.cloud_cover,
-            "assets": scene.assets,
+            "assets": _sanitize_assets(scene.assets),
             "metadata": {
                 "properties": scene.properties,
                 "geometry": scene.geometry,
