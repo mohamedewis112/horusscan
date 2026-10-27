@@ -67,6 +67,17 @@ function stableGridFromHeatmap(heatmap: FeatureCollection): GridFeatureCollectio
   };
 }
 
+type DeepReviewSummary = {
+  completed_rounds: number;
+  total_rounds: number;
+  persistent_zones: Array<{
+    key: string;
+    appearances: number;
+    average_confidence: number;
+    max_confidence: number;
+  }>;
+};
+
 type CouncilResponse = {
   engine: string;
   fusion_profile: string;
@@ -107,6 +118,8 @@ export default function HorusMapV2() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CouncilResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewProgress, setReviewProgress] = useState("");
+  const [deepReview, setDeepReview] = useState<DeepReviewSummary | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -379,6 +392,26 @@ export default function HorusMapV2() {
     setDrawing(false);
   }
 
+  async function requestCouncil(roundStart: Date, roundEnd: Date) {
+    if (!bbox) throw new Error("حدد المنطقة أولًا.");
+    const base = process.env.NEXT_PUBLIC_AI_API_URL ?? "http://localhost:8000";
+    const response = await fetch(`${base}/v1/council/analyze`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        bbox,
+        start: roundStart.toISOString(),
+        end: roundEnd.toISOString(),
+        max_cloud: 20,
+        fusion_profile: "calibration_v1",
+        max_candidates: 10,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail ?? "فشل التحليل.");
+    return payload as CouncilResponse;
+  }
+
   async function runCouncil() {
     if (!bbox) {
       setError("حدد المنطقة أولًا.");
@@ -388,29 +421,83 @@ export default function HorusMapV2() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setDeepReview(null);
+
+    const startDate = new Date(`${start}T00:00:00Z`);
+    const endDate = new Date(`${end}T23:59:59Z`);
+    const midpoint = new Date((startDate.getTime() + endDate.getTime()) / 2);
+    const rounds = [
+      { name: "الفترة الكاملة", from: startDate, to: endDate },
+      { name: "النصف الأقدم", from: startDate, to: midpoint },
+      { name: "النصف الأحدث", from: midpoint, to: endDate },
+    ];
+
+    const completed: CouncilResponse[] = [];
+    const failures: string[] = [];
 
     try {
-      const base = process.env.NEXT_PUBLIC_AI_API_URL ?? "http://localhost:8000";
-      const response = await fetch(`${base}/v1/council/analyze`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          bbox,
-          start: `${start}T00:00:00Z`,
-          end: `${end}T23:59:59Z`,
-          max_cloud: 20,
-          fusion_profile: "calibration_v1",
-          max_candidates: 10,
-        }),
+      for (let index = 0; index < rounds.length; index += 1) {
+        const round = rounds[index];
+        setReviewProgress(`مراجعة ${index + 1}/${rounds.length}: ${round.name}`);
+        try {
+          const payload = await requestCouncil(round.from, round.to);
+          completed.push(payload);
+          if (index === 0) setResult(payload);
+        } catch (roundError) {
+          failures.push(
+            `${round.name}: ${roundError instanceof Error ? roundError.message : "فشلت الجولة"}`,
+          );
+        }
+      }
+
+      if (!completed.length) {
+        throw new Error(failures.join(" · ") || "فشلت جولات التحليل.");
+      }
+
+      if (!result && completed[0]) setResult(completed[0]);
+
+      const zones = new Map<string, { appearances: number; confidences: number[] }>();
+      for (const run of completed) {
+        const seen = new Set<string>();
+        for (const candidate of run.council.candidates) {
+          const key = `${candidate.approximate_center.lat.toFixed(2)},${candidate.approximate_center.lon.toFixed(2)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const current = zones.get(key) ?? { appearances: 0, confidences: [] };
+          current.appearances += 1;
+          current.confidences.push(candidate.evidence_confidence_index);
+          zones.set(key, current);
+        }
+      }
+
+      const persistent = [...zones.entries()]
+        .map(([key, value]) => ({
+          key,
+          appearances: value.appearances,
+          average_confidence:
+            value.confidences.reduce((sum, item) => sum + item, 0) / value.confidences.length,
+          max_confidence: Math.max(...value.confidences),
+        }))
+        .filter((zone) => zone.appearances >= 2)
+        .sort((a, b) =>
+          b.appearances - a.appearances ||
+          b.average_confidence - a.average_confidence
+        )
+        .slice(0, 10);
+
+      setDeepReview({
+        completed_rounds: completed.length,
+        total_rounds: rounds.length,
+        persistent_zones: persistent,
       });
 
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail ?? "فشل التحليل.");
-
-      setResult(payload as CouncilResponse);
+      if (failures.length) {
+        setError("اكتمل التحليل جزئيًا: " + failures.join(" · "));
+      }
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "فشل التحليل.");
     } finally {
+      setReviewProgress("");
       setBusy(false);
     }
   }
@@ -458,7 +545,7 @@ export default function HorusMapV2() {
         </label>
 
         <button className="primary scan-button" disabled={!bbox || busy} onClick={runCouncil}>
-          {busy ? "تحليل شامل + 3 مراجعات مكانية…" : "تشغيل التحليل العميق"}
+          {busy ? (reviewProgress || "التحليل العميق يعمل…") : "تشغيل التحليل العميق"}
         </button>
       </div>
 
@@ -467,6 +554,22 @@ export default function HorusMapV2() {
       </div>
 
       {error && <div className="result-card error">{error}</div>}
+
+      {deepReview && (
+        <div className="deep-review-summary">
+          <strong>
+            المراجعة الزمنية: {deepReview.completed_rounds}/{deepReview.total_rounds} جولات
+          </strong>
+          <span>
+            مناطق تكررت في جولتين أو أكثر: {deepReview.persistent_zones.length}
+          </span>
+          {deepReview.persistent_zones.slice(0, 5).map((zone) => (
+            <small key={zone.key}>
+              ثبات زمني {zone.appearances}/{deepReview.completed_rounds} · متوسط مؤشر الأدلة {zone.average_confidence.toFixed(1)}%
+            </small>
+          ))}
+        </div>
+      )}
 
       {result && (
         <div className="council-run-summary">
