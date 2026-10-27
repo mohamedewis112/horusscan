@@ -71,3 +71,20 @@ def test_metrics_separate_known_sites_and_unlabeled_controls() -> None:
     assert metrics["precision_at_high_priority_proxy"] == 2 / 3
     assert 0.0 <= metrics["pr_auc_proxy"] <= 1.0
     assert metrics["interpretation"]["controls"].startswith("Unlabeled controls")
+
+
+def test_control_avoids_forbidden_known_site() -> None:
+    forbidden = [
+        (25.72, 32.65, 900),
+        (25.70, 32.64, 700),
+        (25.73, 32.60, 1200),
+    ]
+    control = deterministic_control(
+        25.72,
+        32.65,
+        900,
+        3,
+        forbidden_centers=forbidden,
+    )
+    for lat, lon, _radius in forbidden:
+        assert abs(control.lat - lat) > 0.01 or abs(control.lon - lon) > 0.01
