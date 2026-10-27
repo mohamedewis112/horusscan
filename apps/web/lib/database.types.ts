@@ -295,6 +295,152 @@ export type Database = {
           },
         ]
       }
+      foundation_features: {
+        Row: {
+          analysis_run_id: string | null
+          created_at: string
+          data: Json
+          feature_type: string
+          id: string
+          model_key: string
+          provenance: Json
+          summary: Json
+          validation_run_id: string | null
+        }
+        Insert: {
+          analysis_run_id?: string | null
+          created_at?: string
+          data?: Json
+          feature_type: string
+          id?: string
+          model_key: string
+          provenance?: Json
+          summary?: Json
+          validation_run_id?: string | null
+        }
+        Update: {
+          analysis_run_id?: string | null
+          created_at?: string
+          data?: Json
+          feature_type?: string
+          id?: string
+          model_key?: string
+          provenance?: Json
+          summary?: Json
+          validation_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "foundation_features_analysis_run_id_fkey"
+            columns: ["analysis_run_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "foundation_features_validation_run_id_fkey"
+            columns: ["validation_run_id"]
+            isOneToOne: false
+            referencedRelation: "validation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      model_tournament_entries: {
+        Row: {
+          availability_reason: string | null
+          created_at: string
+          duration_ms: number | null
+          id: string
+          metrics: Json
+          model_key: string
+          model_metadata: Json
+          status: string
+          tournament_run_id: string
+        }
+        Insert: {
+          availability_reason?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          id?: string
+          metrics?: Json
+          model_key: string
+          model_metadata?: Json
+          status: string
+          tournament_run_id: string
+        }
+        Update: {
+          availability_reason?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          id?: string
+          metrics?: Json
+          model_key?: string
+          model_metadata?: Json
+          status?: string
+          tournament_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "model_tournament_entries_tournament_run_id_fkey"
+            columns: ["tournament_run_id"]
+            isOneToOne: false
+            referencedRelation: "model_tournament_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      model_tournament_runs: {
+        Row: {
+          competitors: string[]
+          created_at: string
+          dataset_version: string
+          error_message: string | null
+          finished_at: string | null
+          git_commit: string | null
+          id: string
+          parameters: Json
+          ranking: Json
+          requested_by: string
+          split: string
+          started_at: string | null
+          status: string
+          winner: string | null
+        }
+        Insert: {
+          competitors?: string[]
+          created_at?: string
+          dataset_version: string
+          error_message?: string | null
+          finished_at?: string | null
+          git_commit?: string | null
+          id?: string
+          parameters?: Json
+          ranking?: Json
+          requested_by: string
+          split: string
+          started_at?: string | null
+          status?: string
+          winner?: string | null
+        }
+        Update: {
+          competitors?: string[]
+          created_at?: string
+          dataset_version?: string
+          error_message?: string | null
+          finished_at?: string | null
+          git_commit?: string | null
+          id?: string
+          parameters?: Json
+          ranking?: Json
+          requested_by?: string
+          split?: string
+          started_at?: string | null
+          status?: string
+          winner?: string | null
+        }
+        Relationships: []
+      }
       model_versions: {
         Row: {
           calibration_version: string | null
