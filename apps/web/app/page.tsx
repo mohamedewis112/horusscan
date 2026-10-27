@@ -1,4 +1,4 @@
-import HorusMap from "../components/HorusMap";
+import HorusMapV2 from "../components/HorusMapV2";
 import ValidationPanel from "../components/ValidationPanel";
 import ModelLabPanel from "../components/ModelLabPanel";
 
@@ -17,16 +17,15 @@ export default function HomePage() {
             Results are evidence-based candidates, not excavation confirmation.
           </p>
           <div className="status">
-            <b>Milestone 3 · Scientific Validation</b>
+            <b>Milestone 4 · Horus Council</b>
             <span className="muted">
-              Multisensor analysis with geographic holdout, known-site rediscovery,
-              unlabeled controls, and a reserved final-test split.
+              Multi-model evidence council with calibrated fusion, structured disagreement, known-site validation, and a reserved final-test split.
             </span>
           </div>
           <ValidationPanel />
           <ModelLabPanel />
         </aside>
-        <HorusMap />
+        <HorusMapV2 />
       </section>
     </main>
   );
