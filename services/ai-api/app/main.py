@@ -418,7 +418,7 @@ async def run_validation_benchmark(
     try:
         persistence = SupabasePersistence()
         user_id = await persistence.authenticate(token)
-        if request.split == "blind_test" and await persistence.has_completed_blind_run(
+        if request.split == "blind_test" and await persistence.has_locked_blind_run(
             user_id,
             request.dataset_version,
         ):
@@ -429,6 +429,9 @@ async def run_validation_benchmark(
         sites = await persistence.list_validation_sites(
             request.dataset_version,
             request.split,
+        )
+        all_site_centers = await persistence.list_all_validation_centers(
+            request.dataset_version,
         )
     except (PersistenceUnavailable, httpx.HTTPError, PermissionError) as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -461,7 +464,7 @@ async def run_validation_benchmark(
             float(site["longitude"]),
             int(site["evaluation_radius_m"]),
         )
-        for site in sites
+        for site in all_site_centers
     ]
 
     try:
@@ -568,7 +571,7 @@ async def run_validation_benchmark(
                 "finished_at": datetime.utcnow().isoformat() + "Z",
             },
         )
-        return {
+        response_payload = {
             "validation_run_id": run_id,
             "status": run_status,
             "dataset_version": request.dataset_version,
@@ -576,13 +579,21 @@ async def run_validation_benchmark(
             "completed_cases": completed,
             "total_cases": total_cases,
             "metrics": metrics,
-            "cases": rows,
             "scientific_note": (
                 "Positive cases are public known archaeological sites. "
                 "Controls are unlabeled comparison areas, not confirmed archaeological negatives. "
                 "Proxy PR/ROC metrics must be interpreted accordingly."
             ),
         }
+        if request.split != "blind_test":
+            response_payload["cases"] = rows
+        else:
+            response_payload["blind_test"] = {
+                "locked_after_run": True,
+                "case_details_withheld": True,
+                "message": "Blind-test case names and coordinates are withheld from the API response.",
+            }
+        return response_payload
     except Exception as exc:
         await persistence.update_validation_run(
             run_id,
