@@ -15,6 +15,8 @@ from app.pipeline.multisensor import analyze_sar_stack, analyze_terrain, fuse_se
 from app.pipeline.raster_baseline import analyze_scene
 from app.validation.benchmark import ValidationCase, compute_benchmark_metrics, deterministic_control
 from app.validation.runner import run_validation_case
+from app.routes.advanced import router as advanced_router
+from app.routes.tournament import router as tournament_router
 from app.providers.stac import (
     search_copernicus_dem,
     search_open_cog_sentinel2,
@@ -41,6 +43,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["authorization", "content-type"],
 )
+
+app.include_router(advanced_router)
+app.include_router(tournament_router)
 
 
 class SceneSearchRequest(BaseModel):
