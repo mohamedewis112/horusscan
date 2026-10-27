@@ -59,7 +59,10 @@ def _heatmap_geojson(
 ) -> dict[str, Any]:
     min_lon, min_lat, max_lon, max_lat = bbox
     height, width = score.shape
-    stride = max(1, min(height, width) // 32)
+    # Keep analysis at full raster resolution, but expose a denser 48x48
+    # visualization grid so the entire AOI is represented without sending
+    # tens of thousands of polygons to the browser.
+    stride = max(1, min(height, width) // 48)
     features: list[dict[str, Any]] = []
 
     for row in range(0, height, stride):
