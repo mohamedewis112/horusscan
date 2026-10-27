@@ -749,11 +749,45 @@ async def run_hyperfusion_proxy(
 async def list_foundation_models_proxy() -> dict:
     from app.foundation.registry import get_model_registry
 
+    rows = get_model_registry()
+
+    async def verify(row: dict) -> dict:
+        result = dict(row)
+        if not row.get("endpoint_configured"):
+            return result
+
+        endpoint = os.getenv(str(row.get("endpoint_env") or ""), "").rstrip("/")
+        if not endpoint:
+            result["available"] = False
+            result["state"] = "runtime_unhealthy"
+            result["reason"] = "Inference endpoint is configured in metadata but missing at runtime."
+            return result
+
+        try:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                response = await client.get(f"{endpoint}/health")
+            if response.status_code != 200:
+                raise RuntimeError(f"health returned HTTP {response.status_code}")
+            result["available"] = True
+            result["state"] = "active"
+            result["health_checked"] = True
+            result["health_status"] = "ok"
+            result["reason"] = None
+        except Exception as exc:
+            result["available"] = False
+            result["state"] = "runtime_unhealthy"
+            result["health_checked"] = True
+            result["health_status"] = "failed"
+            result["reason"] = f"Configured endpoint failed live health check: {type(exc).__name__}: {exc}"
+        return result
+
+    verified = await asyncio.gather(*(verify(row) for row in rows))
     return {
-        "models": get_model_registry(),
+        "models": verified,
         "note": (
-            "available=true means a real inference path is configured, either a verified "
-            "remote endpoint or a supported public embedding source. Synthetic readiness is rejected."
+            "Green status requires a live health check for remote endpoints. "
+            "Local/public embedding paths report their supported runtime state directly. "
+            "Synthetic readiness is rejected."
         ),
     }
 
