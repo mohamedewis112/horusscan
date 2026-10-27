@@ -11,7 +11,9 @@ dependencies = [
   "numpy==2.3.4",
   "rasterio==1.4.3",
   "scikit-learn==1.7.2",
-  "shapely==2.1.2"
+  "shapely==2.1.2",
+  "pystac-client==0.9.1",
+  "planetary-computer==1.0.0"
 ]
 
 [project.optional-dependencies]
