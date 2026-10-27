@@ -424,7 +424,7 @@ async def run_validation_benchmark(
         ):
             raise HTTPException(
                 status_code=409,
-                detail="Blind test already completed for this dataset. The canonical result is locked.",
+                detail="A blind test is already running or locked for this dataset. The canonical result cannot be rerun.",
             )
         sites = await persistence.list_validation_sites(
             request.dataset_version,
@@ -440,21 +440,32 @@ async def run_validation_benchmark(
         raise HTTPException(status_code=404, detail="No validation sites found for requested split.")
 
     total_cases = len(sites) * (2 if request.include_unlabeled_controls else 1)
-    run_id = await persistence.create_validation_run(
-        user_id=user_id,
-        dataset_version=request.dataset_version,
-        split=request.split,
-        parameters={
-            "start": request.start.isoformat(),
-            "end": request.end.isoformat(),
-            "max_cloud": request.max_cloud,
-            "include_unlabeled_controls": request.include_unlabeled_controls,
-            "method": "known_site_rediscovery_v1",
-            "control_semantics": "unlabeled_not_confirmed_negative",
-        },
-        git_commit=os.getenv("GIT_COMMIT_SHA"),
-    )
-    await persistence.update_validation_run(run_id, {"total_cases": total_cases})
+    try:
+        run_id = await persistence.create_validation_run(
+            user_id=user_id,
+            dataset_version=request.dataset_version,
+            split=request.split,
+            parameters={
+                "start": request.start.isoformat(),
+                "end": request.end.isoformat(),
+                "max_cloud": request.max_cloud,
+                "include_unlabeled_controls": request.include_unlabeled_controls,
+                "method": "known_site_rediscovery_v1",
+                "control_semantics": "unlabeled_not_confirmed_negative",
+            },
+            git_commit=os.getenv("GIT_COMMIT_SHA"),
+        )
+        await persistence.update_validation_run(run_id, {"total_cases": total_cases})
+    except httpx.HTTPStatusError as exc:
+        if request.split == "blind_test" and exc.response.status_code in {400, 409}:
+            raise HTTPException(
+                status_code=409,
+                detail="Blind test is already running or locked for this dataset.",
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not create validation run: {exc.response.status_code}",
+        ) from exc
 
     rows: list[dict] = []
     completed = 0
