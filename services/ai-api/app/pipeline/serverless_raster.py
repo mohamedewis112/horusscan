@@ -30,6 +30,8 @@ class ServerlessScene:
     cloud_cover: float | None
     properties: dict[str, Any]
     assets: tuple[str, ...]
+    asset_hrefs: dict[str, str]
+    bbox: tuple[float, float, float, float] | None
 
 
 def _heatmap_geojson(
@@ -96,6 +98,16 @@ async def search_pc_collection(
             cloud_cover=item.get("properties", {}).get("eo:cloud_cover"),
             properties=item.get("properties", {}),
             assets=tuple(sorted(item.get("assets", {}).keys())),
+            asset_hrefs={
+                str(key): str(value.get("href"))
+                for key, value in item.get("assets", {}).items()
+                if isinstance(value, dict) and value.get("href")
+            },
+            bbox=(
+                tuple(float(value) for value in item["bbox"])
+                if item.get("bbox") and len(item["bbox"]) == 4
+                else None
+            ),
         )
         for item in features
     ]
@@ -174,56 +186,92 @@ async def read_pc_item_assets_npy(
 
 
 
-async def read_pc_item_asset_tiff(
-    scene: ServerlessScene,
-    bbox: tuple[float, float, float, float],
-    asset: str,
-    width: int = 192,
-    height: int = 192,
-    resampling: str = "bilinear",
+async def _sign_pc_href(href: str) -> str:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(
+            "https://planetarycomputer.microsoft.com/api/sas/v1/sign",
+            params={"href": href},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    signed = payload.get("href")
+    if not signed:
+        raise RuntimeError("Planetary Computer SAS endpoint returned no signed href.")
+    return str(signed)
+
+
+def _crop_resample_from_item_bbox(
+    array: np.ndarray,
+    item_bbox: tuple[float, float, float, float],
+    target_bbox: tuple[float, float, float, float],
+    out_shape: tuple[int, int] = (192, 192),
 ) -> np.ndarray:
-    if asset not in scene.assets:
-        raise KeyError(
-            f"Scene {scene.item_id} missing asset {asset}; available={list(scene.assets)}"
+    west, south, east, north = item_bbox
+    min_lon, min_lat, max_lon, max_lat = target_bbox
+    height, width = array.shape
+
+    if east <= west or north <= south:
+        raise ValueError(f"Invalid source item bbox: {item_bbox}")
+
+    col0 = int(np.floor((min_lon - west) / (east - west) * width))
+    col1 = int(np.ceil((max_lon - west) / (east - west) * width))
+    row0 = int(np.floor((north - max_lat) / (north - south) * height))
+    row1 = int(np.ceil((north - min_lat) / (north - south) * height))
+
+    col0 = max(0, min(width - 1, col0))
+    col1 = max(col0 + 1, min(width, col1))
+    row0 = max(0, min(height - 1, row0))
+    row1 = max(row0 + 1, min(height, row1))
+
+    crop = array[row0:row1, col0:col1]
+    if crop.size == 0:
+        raise ValueError(
+            f"DEM crop is empty for item_bbox={item_bbox}, target_bbox={target_bbox}"
         )
 
-    min_lon, min_lat, max_lon, max_lat = bbox
-    url = (
-        f"{PC_TILER}/item/bbox/"
-        f"{min_lon},{min_lat},{max_lon},{max_lat}/{width}x{height}.tif"
-    )
-    params = [
-        ("collection", scene.collection),
-        ("item", scene.item_id),
-        ("asset_as_band", "true"),
-        ("return_mask", "false"),
-        ("resampling", resampling),
-        ("unscale", "false"),
-        ("assets", asset),
-    ]
+    out_h, out_w = out_shape
+    rows = np.linspace(0, crop.shape[0] - 1, out_h).round().astype(int)
+    cols = np.linspace(0, crop.shape[1] - 1, out_w).round().astype(int)
+    return crop[np.ix_(rows, cols)].astype(np.float32)
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        response = await client.get(url, params=params)
+
+async def read_pc_dem_cog_direct(
+    scene: ServerlessScene,
+    bbox: tuple[float, float, float, float],
+    asset: str = "data",
+    out_shape: tuple[int, int] = (192, 192),
+) -> np.ndarray:
+    href = scene.asset_hrefs.get(asset)
+    if not href:
+        raise KeyError(
+            f"Scene {scene.item_id} has no href for asset {asset}."
+        )
+    if scene.bbox is None:
+        raise ValueError(f"Scene {scene.item_id} has no item bbox.")
+
+    signed_href = await _sign_pc_href(href)
+    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        response = await client.get(signed_href)
         response.raise_for_status()
-        content_type = response.headers.get("content-type", "").lower()
-        if "tiff" not in content_type and not response.content.startswith((b"II", b"MM")):
-            raise RuntimeError(
-                "Planetary Computer tiler did not return TIFF data: "
-                f"{response.headers.get('content-type')}"
-            )
 
     arr = np.asarray(imread(BytesIO(response.content)))
     arr = np.squeeze(arr)
     if arr.ndim == 3:
-        if arr.shape[-1] == 1:
-            arr = arr[..., 0]
-        elif arr.shape[0] == 1:
+        if arr.shape[0] == 1:
             arr = arr[0]
+        elif arr.shape[-1] == 1:
+            arr = arr[..., 0]
         else:
             arr = arr[..., 0]
     if arr.ndim != 2:
-        raise RuntimeError(f"Unexpected DEM TIFF shape: {arr.shape}")
-    return arr.astype(np.float32)
+        raise RuntimeError(f"Unexpected direct DEM COG shape: {arr.shape}")
+
+    return _crop_resample_from_item_bbox(
+        arr.astype(np.float32),
+        scene.bbox,
+        bbox,
+        out_shape=out_shape,
+    )
 
 
 def _isolation_score(features: list[np.ndarray], valid: np.ndarray) -> np.ndarray:
@@ -421,12 +469,11 @@ async def analyze_dem_serverless(
 
     reads = await asyncio.gather(
         *[
-            read_pc_item_asset_tiff(
+            read_pc_dem_cog_direct(
                 scene,
                 bbox,
                 "data",
-                width=192,
-                height=192,
+                out_shape=(192, 192),
             )
             for scene in usable
         ],
@@ -458,7 +505,7 @@ async def analyze_dem_serverless(
 
     if not tiles:
         detail = "; ".join(errors[:3]) if errors else "no usable TIFF reads"
-        raise ValueError(f"Copernicus DEM TIFF reads returned no usable pixels: {detail}")
+        raise ValueError(f"Copernicus DEM direct COG reads returned no usable pixels: {detail}")
 
     elevation = np.nanmedian(np.stack(tiles), axis=0)
     gy, gx = np.gradient(elevation)
@@ -484,7 +531,7 @@ async def analyze_dem_serverless(
             {
                 "tiles_used": len(used),
                 "serverless_raster_path": True,
-                "transport": "server_rendered_geotiff",
+                "transport": "direct_signed_cog",
             },
         ),
         "heatmap": _heatmap_geojson(score, bbox),
@@ -494,7 +541,7 @@ async def analyze_dem_serverless(
             "collection": "cop-dem-glo-30",
             "scenes": [scene.item_id for scene in used],
             "asset": "data",
-            "transport": "titiler_geotiff",
+            "transport": "direct_signed_cog",
         },
     }
 
