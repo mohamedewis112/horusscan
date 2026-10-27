@@ -125,6 +125,7 @@ async def read_pc_item_assets_npy(
     height: int = 192,
     resampling: str = "bilinear",
     unscale: bool = False,
+    return_mask: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     missing = [asset for asset in assets if asset not in scene.assets]
     if missing:
@@ -142,7 +143,7 @@ async def read_pc_item_assets_npy(
         ("collection", scene.collection),
         ("item", scene.item_id),
         ("asset_as_band", "true"),
-        ("return_mask", "true"),
+        ("return_mask", "true" if return_mask else "false"),
         ("resampling", resampling),
         ("unscale", "true" if unscale else "false"),
     ]
@@ -382,7 +383,14 @@ async def analyze_dem_serverless(
         if isinstance(result, Exception):
             continue
         cube, mask = result
-        elevation = np.where(mask & np.isfinite(cube[0]), cube[0], np.nan)
+        raw = cube[0]
+        dem_valid = (
+            mask
+            & np.isfinite(raw)
+            & (raw > -1000.0)
+            & (raw < 10000.0)
+        )
+        elevation = np.where(dem_valid, raw, np.nan)
         if np.isfinite(elevation).sum() < 256:
             continue
         tiles.append(elevation)
