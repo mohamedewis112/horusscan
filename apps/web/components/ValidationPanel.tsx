@@ -87,6 +87,13 @@ export default function ValidationPanel() {
         Public known-site rediscovery with geographic holdout and unlabeled controls.
       </p>
 
+      {split === "blind_test" && (
+        <div className="blind-warning">
+          Blind Test is a one-shot canonical evaluation. Once it starts successfully,
+          this dataset cannot be rerun for the same account.
+        </div>
+      )}
+
       <div className="validation-controls">
         <select value={split} onChange={(event) => setSplit(event.target.value)}>
           <option value="calibration">Calibration</option>
