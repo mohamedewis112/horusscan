@@ -141,8 +141,10 @@ const ALTERNATIVES: Record<string, string> = {
 
 export default function CouncilResultPanel({
   council,
+  onFocusCandidate,
 }: {
   council: HorusCouncil;
+  onFocusCandidate?: (candidate: CouncilCandidate) => void;
 }) {
   if (!council.candidates.length) {
     return (
@@ -311,8 +313,19 @@ export default function CouncilResultPanel({
             )}
 
             <div className="candidate-location">
-              مركز منطقة البحث التقريبي: {candidate.approximate_center.lat.toFixed(2)}, {candidate.approximate_center.lon.toFixed(2)}
-              <small> — ليست إحداثيات حفر دقيقة</small>
+              <div>
+                مركز خلية التحليل: {candidate.approximate_center.lat.toFixed(5)}, {candidate.approximate_center.lon.toFixed(5)}
+                <small> — مع عدم يقين مكاني ±{Math.round(candidate.spatial_uncertainty_m)} م</small>
+              </div>
+              {onFocusCandidate && (
+                <button
+                  type="button"
+                  className="candidate-focus-button"
+                  onClick={() => onFocusCandidate(candidate)}
+                >
+                  اذهب للموقع على الخريطة
+                </button>
+              )}
             </div>
           </article>
         ))}
