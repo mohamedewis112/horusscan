@@ -46,6 +46,32 @@ type CouncilCandidate = {
       accepted: boolean;
     }>;
   };
+  archaeology_memory?: {
+    status: string;
+    fingerprint_count: number;
+    memory_similarity_score: number;
+    memory_verdict: string;
+    necropolis_context_score: number;
+    necropolis_verdict: string;
+    top_reference_matches: Array<{
+      slug: string;
+      name: string;
+      archetype: string;
+      site_type: string;
+      similarity: number;
+      shared_branch_count: number;
+      distance_km_context_only: number;
+      public_source: string;
+    }>;
+    top_archetypes: Array<{
+      archetype: string;
+      similarity: number;
+      reference_count: number;
+    }>;
+    calibrated: boolean;
+    confidence_adjustment: number;
+    distance_used_in_similarity: boolean;
+  };
 };
 
 export type HorusCouncil = {
@@ -62,6 +88,14 @@ export type HorusCouncil = {
     review_rounds: number;
     score_distribution?: Record<string, number>;
     area_share_above_absolute_score?: Record<string, number>;
+  };
+  memory_layer?: {
+    status: string;
+    reference_site_count: number;
+    fingerprint_count: number;
+    dataset_version: string;
+    adjudication_only: boolean;
+    confidence_adjustment: number;
   };
   candidates: CouncilCandidate[];
   method: Record<string, string>;
@@ -80,6 +114,8 @@ const LABELS: Record<string, string> = {
   terraflow: "TerraFlow",
   physics_sar: "Physics-SAR",
   thermal_inertia: "Thermal Inertia",
+  archaeology_memory: "ذاكرة الآثار المصرية",
+  necropolis_context: "سياق المقابر والجبانات",
 };
 
 const VERDICT: Record<string, string> = {
@@ -130,6 +166,23 @@ export default function CouncilResultPanel({
         النسبة التالية هي <b>مؤشر ثقة في الأدلة</b> بعد اتفاق/اعتراض الفروع المختلفة،
         وليست احتمالًا مؤكدًا لوجود أثر أو مبنى مدفون.
       </p>
+
+      {council.memory_layer && (
+        <div className="memory-layer-summary">
+          <div>
+            <span>بنك المراجع الأثرية</span>
+            <strong>{council.memory_layer.reference_site_count} موقع عام</strong>
+          </div>
+          <div>
+            <span>بصمات Sensor جاهزة</span>
+            <strong>{council.memory_layer.fingerprint_count}</strong>
+          </div>
+          <div>
+            <span>دور الطبقة</span>
+            <strong>مراجعة فقط</strong>
+          </div>
+        </div>
+      )}
 
       {council.coverage_summary && (
         <div className="coverage-summary">
@@ -192,6 +245,47 @@ export default function CouncilResultPanel({
                 </span>
               )}
             </div>
+
+            {candidate.archaeology_memory?.status === "ready" && (
+              <div className="memory-review-card">
+                <div className="memory-review-head">
+                  <div>
+                    <span>Egypt Archaeology Memory</span>
+                    <strong>
+                      تشابه مرجعي {Math.round(candidate.archaeology_memory.memory_similarity_score * 100)}%
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Necropolis Context</span>
+                    <strong>
+                      {Math.round(candidate.archaeology_memory.necropolis_context_score * 100)}%
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="memory-archetypes">
+                  <b>أقرب الأنماط الأثرية:</b>
+                  {candidate.archaeology_memory.top_archetypes.slice(0, 3).map((row) => (
+                    <span key={row.archetype}>
+                      {row.archetype} · {Math.round(row.similarity * 100)}%
+                    </span>
+                  ))}
+                </div>
+
+                <div className="memory-matches">
+                  <b>أقرب مواقع مرجعية:</b>
+                  {candidate.archaeology_memory.top_reference_matches.slice(0, 3).map((row) => (
+                    <span key={row.slug}>
+                      {row.name} · {Math.round(row.similarity * 100)}%
+                    </span>
+                  ))}
+                </div>
+
+                <small>
+                  المسافة من المواقع المعروفة لا تدخل في التشابه، والطبقة لا تغيّر الثقة الرقمية حتى يتم Calibration مستقل.
+                </small>
+              </div>
+            )}
 
             <div className="consensus-grid">
               {candidate.consensus_matrix.map((item) => (
