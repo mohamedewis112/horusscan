@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
 
 type ModelState = {
   key: string;
@@ -37,45 +36,17 @@ export default function ModelLabPanel() {
       );
   }, []);
 
-  async function runTournament() {
-    if (!supabase) {
-      setError("Supabase is not configured.");
-      return;
-    }
+  async function refreshModels() {
     setBusy(true);
     setError(null);
-    setRanking([]);
     try {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      if (!data.session) throw new Error("Sign in first.");
-
-      const end = new Date();
-      const start = new Date();
-      start.setUTCFullYear(start.getUTCFullYear() - 2);
-
       const base = process.env.NEXT_PUBLIC_AI_API_URL ?? "http://localhost:8000";
-      const response = await fetch(`${base}/v1/tournament/run`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${data.session.access_token}`,
-        },
-        body: JSON.stringify({
-          dataset_version: "unesco-egypt-public-v1-2026-10-27",
-          split: "validation",
-          start: start.toISOString(),
-          end: end.toISOString(),
-          max_cloud: 20,
-          include_baseline: true,
-          include_unlabeled_controls: true,
-        }),
-      });
+      const response = await fetch(`${base}/v1/foundation/models`);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail ?? "Tournament failed.");
-      setRanking(payload.ranking ?? []);
-    } catch (tournamentError) {
-      setError(tournamentError instanceof Error ? tournamentError.message : "Tournament failed.");
+      if (!response.ok) throw new Error(payload.detail ?? "تعذر تحديث حالة الموديلات.");
+      setModels(payload.models ?? []);
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "تعذر تحديث حالة الموديلات.");
     } finally {
       setBusy(false);
     }
@@ -110,27 +81,15 @@ export default function ModelLabPanel() {
         ))}
       </div>
 
-      <button className="tournament-button" disabled={busy} onClick={runTournament}>
-        {busy ? "جارٍ تشغيل المقارنة…" : "تشغيل مقارنة الأداء"}
+      <button className="tournament-button" disabled={busy} onClick={refreshModels}>
+        {busy ? "جارٍ تحديث حالة الموديلات…" : "تحديث حالة الموديلات"}
       </button>
 
       {error && <div className="validation-error">{error}</div>}
 
-      {ranking.length > 0 && (
-        <div className="tournament-ranking">
-          {ranking.map((row, index) => (
-            <div key={row.model_key}>
-              <b>#{index + 1} {row.model_key}</b>
-              <span>{row.status}</span>
-              <strong>
-                {row.composite_validation_score === null
-                  ? "n/a"
-                  : row.composite_validation_score.toFixed(3)}
-              </strong>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="validation-note">
+        وضع المعاينة لا يحتاج تسجيل دخول. مقارنة الأداء العلمية الكاملة تظل منفصلة عن تجربة الخريطة المباشرة.
+      </div>
     </section>
   );
 }
