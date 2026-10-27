@@ -30,11 +30,11 @@ The `develop` branch now contains a real working-core bootstrap:
 - Supabase/PostgreSQL backend with PostGIS, pgvector, RLS, spatial indexes, model/audit tables.
 - GitHub Actions checks for web type/build validation and Python lint/tests.
 - Scientific validation dataset from public UNESCO World Heritage coordinates.
-- Regional geographic holdout: calibration / validation / locked blind-test.
+- Regional geographic holdout: Lower Egypt calibration / Luxor-Thebes validation / Aswan-Nubia locked blind-test.
 - Known-site rediscovery benchmark using the same real multisensor pipeline.
-- Deterministic unlabeled controls spatially separated from public known-site centers.
+- Deterministic unlabeled controls spatially separated from every public known-site center in the dataset.
 - Rediscovery Rate, Precision@High-Priority proxy, PR-AUC proxy and ROC-AUC proxy.
-- Persisted per-case benchmark evidence and a one-completed-run blind-test lock.
+- Persisted per-case benchmark evidence, database-enforced one-shot blind-test locking, and aggregate-only blind API responses.
 
 ## Repository layout
 
@@ -94,7 +94,7 @@ The current baseline is intentionally reproducible and now multisensor. It ident
 
 Next research phases:
 
-1. Spatial holdout validation on known archaeological sites and control areas.
+1. Execute and review calibration + validation benchmark runs with live EO data.
 2. Stronger Sentinel-1 preprocessing and orbit-aware temporal grouping.
 3. TerraMind adapter.
 4. Prithvi temporal adapter.
@@ -102,7 +102,7 @@ Next research phases:
 6. Geometry engine and historical persistence.
 7. Cross-sensor learned HyperFusion.
 8. Calibration, conformal uncertainty and explainability.
-9. Scientific benchmark / blind demo.
+9. Final locked blind demonstration.
 
 ## Non-negotiable scientific rules
 
