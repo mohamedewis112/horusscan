@@ -28,7 +28,7 @@ class CouncilRequest(BaseModel):
     end: datetime
     max_cloud: float = Field(default=20.0, ge=0.0, le=100.0)
     fusion_profile: str = "calibration_v1"
-    max_candidates: int = Field(default=5, ge=1, le=10)
+    max_candidates: int = Field(default=10, ge=1, le=15)
 
 
 def _validate_bbox(bbox: tuple[float, float, float, float]) -> None:
