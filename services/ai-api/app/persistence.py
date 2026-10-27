@@ -169,3 +169,111 @@ class SupabasePersistence:
                 json=payload,
             )
             response.raise_for_status()
+
+
+    async def list_validation_sites(
+        self,
+        dataset_version: str,
+        split: str,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "dataset_version": f"eq.{dataset_version}",
+            "select": (
+                "id,name,region_group,split,evaluation_radius_m,"
+                "center_geojson:st_asgeojson(center)"
+            ),
+        }
+        if split != "all":
+            params["split"] = f"eq.{split}"
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"{self.url}/rest/v1/validation_sites",
+                headers=self._service_headers(),
+                params=params,
+            )
+            response.raise_for_status()
+            return list(response.json())
+
+    async def create_validation_run(
+        self,
+        user_id: str,
+        dataset_version: str,
+        split: str,
+        parameters: dict[str, Any],
+        git_commit: str | None,
+    ) -> str:
+        payload = {
+            "requested_by": user_id,
+            "dataset_version": dataset_version,
+            "split": split,
+            "status": "running",
+            "parameters": parameters,
+            "git_commit": git_commit,
+            "started_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{self.url}/rest/v1/validation_runs",
+                headers=self._service_headers("return=representation"),
+                json=payload,
+            )
+            response.raise_for_status()
+            rows = response.json()
+        if not rows:
+            raise RuntimeError("Supabase did not return the validation run.")
+        return str(rows[0]["id"])
+
+    async def update_validation_run(
+        self,
+        validation_run_id: str,
+        values: dict[str, Any],
+    ) -> None:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.patch(
+                f"{self.url}/rest/v1/validation_runs",
+                headers=self._service_headers("return=minimal"),
+                params={"id": f"eq.{validation_run_id}"},
+                json=values,
+            )
+            response.raise_for_status()
+
+    async def store_validation_result(
+        self,
+        validation_run_id: str,
+        validation_site_id: str | None,
+        case_type: str,
+        case_name: str,
+        lon: float,
+        lat: float,
+        radius_m: int,
+        rediscovery_score: float | None,
+        center_block_percentile: float | None,
+        concentration_ratio: float | None,
+        detected_high_priority: bool | None,
+        fusion_summary: dict[str, Any],
+        sensor_summary: dict[str, Any],
+        error_message: str | None = None,
+    ) -> None:
+        payload = {
+            "validation_run_id": validation_run_id,
+            "validation_site_id": validation_site_id,
+            "case_type": case_type,
+            "case_name": case_name,
+            "evaluated_center": f"POINT({lon} {lat})",
+            "evaluation_radius_m": radius_m,
+            "rediscovery_score": rediscovery_score,
+            "center_block_percentile": center_block_percentile,
+            "concentration_ratio": concentration_ratio,
+            "detected_high_priority": detected_high_priority,
+            "fusion_summary": fusion_summary,
+            "sensor_summary": sensor_summary,
+            "error_message": error_message,
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{self.url}/rest/v1/validation_results",
+                headers=self._service_headers("return=minimal"),
+                json=payload,
+            )
+            response.raise_for_status()
