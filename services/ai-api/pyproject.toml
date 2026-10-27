@@ -9,7 +9,7 @@ dependencies = [
   "httpx==0.28.1",
   "pydantic==2.12.4",
   "numpy==2.3.4",
-  "rasterio==1.4.3",
+  "rasterio==1.5.2",
   "scikit-learn==1.7.2",
   "shapely==2.1.2",
   "pystac-client==0.9.1",
