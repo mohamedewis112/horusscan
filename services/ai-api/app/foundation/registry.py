@@ -18,13 +18,27 @@ class ModelSpec:
     def availability(self) -> dict[str, Any]:
         endpoint = os.getenv(self.endpoint_env)
         checkpoint = os.getenv(self.checkpoint_env) if self.checkpoint_env else None
-        available = bool(endpoint)
+        local_olmo = (
+            self.key == "olmoearth"
+            and os.getenv("OLMOEARTH_SERVERLESS_ENABLED", "false").lower() == "true"
+        )
+        available = bool(endpoint) or local_olmo
+        if local_olmo:
+            reason = None
+            inference_mode = "public_precomputed_global_embeddings"
+        elif endpoint:
+            reason = None
+            inference_mode = "remote_inference_endpoint"
+        else:
+            reason = f"Set {self.endpoint_env} to a real inference endpoint."
+            inference_mode = "unavailable"
         return {
             **asdict(self),
             "available": available,
             "endpoint_configured": bool(endpoint),
             "checkpoint_configured": bool(checkpoint) if self.checkpoint_env else None,
-            "reason": None if available else f"Set {self.endpoint_env} to a real inference endpoint.",
+            "inference_mode": inference_mode,
+            "reason": reason,
         }
 
 
