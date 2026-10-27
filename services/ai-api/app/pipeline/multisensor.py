@@ -189,40 +189,75 @@ def analyze_terrain(
     )
 
 
-def fuse_sensor_scores(
-    spectral: np.ndarray,
-    sar: np.ndarray | None,
-    terrain: np.ndarray | None,
+def fuse_evidence_layers(
+    layers: dict[str, np.ndarray],
     bbox: tuple[float, float, float, float],
+    reliability: dict[str, float] | None = None,
 ) -> SensorResult:
-    named = [("spectral", spectral)]
-    if sar is not None:
-        named.append(("sar", sar))
-    if terrain is not None:
-        named.append(("terrain", terrain))
+    if not layers:
+        raise ValueError("At least one evidence layer is required for fusion.")
 
-    cube = np.stack([score for _, score in named], axis=0)
-    valid_count = np.sum(np.isfinite(cube), axis=0)
+    shapes = {arr.shape for arr in layers.values()}
+    if len(shapes) != 1:
+        raise ValueError(f"Evidence layers must share one raster shape, got: {sorted(shapes)}")
+
+    names = list(layers)
+    reliability = reliability or {}
+    cube = np.stack([layers[name] for name in names], axis=0).astype(np.float32)
+    valid = np.isfinite(cube)
+
+    weights = np.asarray(
+        [max(float(reliability.get(name, 1.0)), 1e-3) for name in names],
+        dtype=np.float32,
+    )[:, None, None]
+    effective_weights = weights * valid
+    weight_sum = np.sum(effective_weights, axis=0)
+
     clipped = np.clip(cube, 1e-4, 1.0)
-    log_product = np.nansum(np.log(clipped), axis=0)
-    fused = np.exp(log_product / np.maximum(valid_count, 1))
-    fused[valid_count == 0] = np.nan
+    weighted_log = np.nansum(np.log(clipped) * effective_weights, axis=0)
+    geometric = np.exp(
+        np.divide(
+            weighted_log,
+            weight_sum,
+            out=np.zeros_like(weighted_log, dtype=np.float32),
+            where=weight_sum > 0,
+        )
+    )
 
-    high_votes = np.sum(cube >= 0.75, axis=0)
+    high_votes = np.sum((cube >= 0.75) * valid, axis=0)
+    valid_count = np.sum(valid, axis=0)
     agreement = np.divide(
         high_votes,
         valid_count,
-        out=np.zeros_like(fused, dtype=np.float32),
+        out=np.zeros_like(geometric, dtype=np.float32),
         where=valid_count > 0,
     )
+
+    coverage = np.divide(
+        valid_count,
+        len(names),
+        out=np.zeros_like(geometric, dtype=np.float32),
+        where=len(names) > 0,
+    )
+
     fused = np.where(
-        np.isfinite(fused),
-        np.clip(0.75 * fused + 0.25 * agreement, 0.0, 1.0),
+        weight_sum > 0,
+        np.clip(
+            0.65 * geometric
+            + 0.25 * agreement
+            + 0.10 * coverage * geometric,
+            0.0,
+            1.0,
+        ),
         np.nan,
     ).astype(np.float32)
 
-    valid = fused[np.isfinite(fused)]
-    strong_fraction = float(np.mean(agreement[np.isfinite(fused)] >= 0.66)) if valid.size else 0.0
+    fused_valid = fused[np.isfinite(fused)]
+    strong_fraction = (
+        float(np.mean(agreement[np.isfinite(fused)] >= 0.66))
+        if fused_valid.size
+        else 0.0
+    )
     if strong_fraction >= 0.25:
         evidence_agreement = "strong"
     elif strong_fraction >= 0.08:
@@ -231,20 +266,42 @@ def fuse_sensor_scores(
         evidence_agreement = "conflicting"
 
     return SensorResult(
-        sensor="multisensor-baseline-fusion",
+        sensor="horus-hyperfusion-v0",
         summary=_summary(
             fused,
             {
-                "sensors": [name for name, _ in named],
+                "sensors": names,
                 "evidence_agreement": evidence_agreement,
                 "agreement_fraction": strong_fraction,
-                "fusion_method": "geometric_evidence_fusion_plus_high-rank_agreement",
+                "mean_sensor_coverage": float(np.nanmean(coverage)),
+                "fusion_method": "reliability_weighted_geometric_evidence+agreement+coverage_gating",
+                "calibrated_probability": False,
             },
         ),
         heatmap=_heatmap_geojson(fused, bbox),
         score=fused,
         provenance={
-            "inputs": [name for name, _ in named],
-            "note": "Fusion rank is not calibrated archaeological probability.",
+            "inputs": names,
+            "reliability_weights": {
+                name: float(reliability.get(name, 1.0)) for name in names
+            },
+            "note": (
+                "HyperFusion v0 is deterministic evidence fusion. "
+                "It is not a calibrated archaeological probability."
+            ),
         },
     )
+
+
+def fuse_sensor_scores(
+    spectral: np.ndarray,
+    sar: np.ndarray | None,
+    terrain: np.ndarray | None,
+    bbox: tuple[float, float, float, float],
+) -> SensorResult:
+    layers = {"spectral": spectral}
+    if sar is not None:
+        layers["sar"] = sar
+    if terrain is not None:
+        layers["terrain"] = terrain
+    return fuse_evidence_layers(layers, bbox)
