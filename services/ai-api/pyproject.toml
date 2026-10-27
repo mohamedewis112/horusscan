@@ -1,0 +1,29 @@
+[project]
+name = "horusscan-ai-api"
+version = "0.1.0"
+description = "HorusScan geospatial AI inference and remote-sensing service"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi==0.121.0",
+  "uvicorn[standard]==0.38.0",
+  "httpx==0.28.1",
+  "pydantic==2.12.4",
+  "numpy==2.3.4",
+  "rasterio==1.4.3",
+  "scikit-learn==1.7.2",
+  "shapely==2.1.2"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.2",
+  "ruff==0.14.2"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
