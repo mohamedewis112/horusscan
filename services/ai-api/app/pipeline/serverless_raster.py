@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import numpy as np
 from sklearn.ensemble import IsolationForest
+from tifffile import imread
 
 from app.pipeline.sentinel2 import (
     compute_spectral_features,
@@ -170,6 +171,59 @@ async def read_pc_item_assets_npy(
     else:
         mask = np.all(np.isfinite(data), axis=0)
     return data, mask
+
+
+
+async def read_pc_item_asset_tiff(
+    scene: ServerlessScene,
+    bbox: tuple[float, float, float, float],
+    asset: str,
+    width: int = 192,
+    height: int = 192,
+    resampling: str = "bilinear",
+) -> np.ndarray:
+    if asset not in scene.assets:
+        raise KeyError(
+            f"Scene {scene.item_id} missing asset {asset}; available={list(scene.assets)}"
+        )
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    url = (
+        f"{PC_TILER}/item/bbox/"
+        f"{min_lon},{min_lat},{max_lon},{max_lat}/{width}x{height}.tif"
+    )
+    params = [
+        ("collection", scene.collection),
+        ("item", scene.item_id),
+        ("asset_as_band", "true"),
+        ("return_mask", "false"),
+        ("resampling", resampling),
+        ("unscale", "false"),
+        ("assets", asset),
+    ]
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "").lower()
+        if "tiff" not in content_type and not response.content.startswith((b"II", b"MM")):
+            raise RuntimeError(
+                "Planetary Computer tiler did not return TIFF data: "
+                f"{response.headers.get('content-type')}"
+            )
+
+    arr = np.asarray(imread(BytesIO(response.content)))
+    arr = np.squeeze(arr)
+    if arr.ndim == 3:
+        if arr.shape[-1] == 1:
+            arr = arr[..., 0]
+        elif arr.shape[0] == 1:
+            arr = arr[0]
+        else:
+            arr = arr[..., 0]
+    if arr.ndim != 2:
+        raise RuntimeError(f"Unexpected DEM TIFF shape: {arr.shape}")
+    return arr.astype(np.float32)
 
 
 def _isolation_score(features: list[np.ndarray], valid: np.ndarray) -> np.ndarray:
@@ -367,12 +421,12 @@ async def analyze_dem_serverless(
 
     reads = await asyncio.gather(
         *[
-            read_pc_item_assets_npy(
+            read_pc_item_asset_tiff(
                 scene,
                 bbox,
-                ("data",),
-                width=160,
-                height=160,
+                "data",
+                width=192,
+                height=192,
             )
             for scene in usable
         ],
@@ -381,25 +435,30 @@ async def analyze_dem_serverless(
 
     tiles: list[np.ndarray] = []
     used: list[ServerlessScene] = []
+    errors: list[str] = []
+
     for scene, result in zip(usable, reads):
         if isinstance(result, Exception):
+            errors.append(f"{scene.item_id}: {type(result).__name__}: {result}")
             continue
-        cube, mask = result
-        raw = cube[0]
+        raw = result
         dem_valid = (
-            mask
-            & np.isfinite(raw)
+            np.isfinite(raw)
             & (raw > -1000.0)
             & (raw < 10000.0)
         )
         elevation = np.where(dem_valid, raw, np.nan)
         if np.isfinite(elevation).sum() < 256:
+            errors.append(
+                f"{scene.item_id}: fewer than 256 finite elevation pixels"
+            )
             continue
         tiles.append(elevation)
         used.append(scene)
 
     if not tiles:
-        raise ValueError("Copernicus DEM NumpyTile reads returned no usable pixels.")
+        detail = "; ".join(errors[:3]) if errors else "no usable TIFF reads"
+        raise ValueError(f"Copernicus DEM TIFF reads returned no usable pixels: {detail}")
 
     elevation = np.nanmedian(np.stack(tiles), axis=0)
     gy, gx = np.gradient(elevation)
@@ -410,7 +469,12 @@ async def analyze_dem_serverless(
     ry, rx = np.gradient(slope)
     roughness = np.hypot(rx, ry)
 
-    valid = np.isfinite(elevation) & np.isfinite(slope) & np.isfinite(curvature)
+    valid = (
+        np.isfinite(elevation)
+        & np.isfinite(slope)
+        & np.isfinite(curvature)
+        & np.isfinite(roughness)
+    )
     score = _isolation_score([elevation, slope, curvature, roughness], valid)
 
     return {
@@ -420,6 +484,7 @@ async def analyze_dem_serverless(
             {
                 "tiles_used": len(used),
                 "serverless_raster_path": True,
+                "transport": "server_rendered_geotiff",
             },
         ),
         "heatmap": _heatmap_geojson(score, bbox),
@@ -429,9 +494,9 @@ async def analyze_dem_serverless(
             "collection": "cop-dem-glo-30",
             "scenes": [scene.item_id for scene in used],
             "asset": "data",
+            "transport": "titiler_geotiff",
         },
     }
-
 
 async def analyze_thermal_serverless(
     scenes: list[ServerlessScene],
