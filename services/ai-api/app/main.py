@@ -686,25 +686,54 @@ async def smoke_spectral() -> dict:
 
     from datetime import timedelta, timezone
 
-    from app.pipeline.raster_baseline import analyze_scene
-    from app.providers.stac import search_open_cog_sentinel2
-
-    # Small public test AOI for infrastructure validation only; not a discovery claim.
     bbox = (31.20, 29.92, 31.22, 29.94)
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=180)
 
-    scenes = await search_open_cog_sentinel2(
-        bbox,
-        start,
-        end,
-        max_cloud=25.0,
-        limit=3,
-    )
+    try:
+        from app.pipeline.raster_baseline import analyze_scene
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "import_pipeline",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    try:
+        from app.providers.stac import search_open_cog_sentinel2
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "import_provider",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    try:
+        scenes = await search_open_cog_sentinel2(
+            bbox,
+            start,
+            end,
+            max_cloud=25.0,
+            limit=3,
+        )
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "stac_search",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
     if not scenes:
         return {
             "real_data": True,
             "status": "inconclusive",
+            "stage": "stac_search",
             "reason": "No suitable Sentinel-2 scene found in smoke-test window.",
         }
 
@@ -712,13 +741,31 @@ async def smoke_spectral() -> dict:
         scenes,
         key=lambda item: item.cloud_cover if item.cloud_cover is not None else 101.0,
     )
-    result = await asyncio.to_thread(
-        analyze_scene,
-        scene.item_id,
-        scene.cloud_cover,
-        scene.assets,
-        bbox,
-    )
+
+    try:
+        result = await asyncio.to_thread(
+            analyze_scene,
+            scene.item_id,
+            scene.cloud_cover,
+            scene.assets,
+            bbox,
+        )
+    except Exception as exc:
+        return {
+            "real_data": True,
+            "status": "failed",
+            "stage": "raster_analysis",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "scene": {
+                "id": scene.item_id,
+                "datetime": scene.datetime,
+                "cloud_cover": scene.cloud_cover,
+                "provider": scene.provider,
+            },
+            "asset_keys": sorted(scene.assets.keys()),
+        }
+
     return {
         "real_data": True,
         "status": "completed",
@@ -734,3 +781,4 @@ async def smoke_spectral() -> dict:
             "The anomaly rank is not an archaeological probability."
         ),
     }
+
