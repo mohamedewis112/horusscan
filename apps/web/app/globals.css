@@ -32,3 +32,6 @@
 .model-chip .online{color:#88d6a0}.model-chip .offline{color:#c98787}
 .tournament-button{width:100%;margin-top:10px;padding:9px;border:1px solid #8f7743;border-radius:8px;background:#b99957;color:#0b0d10;font-weight:800;cursor:pointer}.tournament-button:disabled{opacity:.5;cursor:not-allowed}
 .tournament-ranking{display:grid;gap:6px;margin-top:10px}.tournament-ranking>div{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:7px;border-bottom:1px solid #29323b;font-size:11px}.tournament-ranking span{color:#9099a4}.tournament-ranking strong{color:#e6c77c}
+
+/* Keep controls in normal flow on narrow screens so the auth panel cannot cover drawing tools. */
+@media(max-width:900px){.map-toolbar{position:relative;top:auto;left:auto;right:auto;margin:8px}.result-card{position:relative;right:auto;bottom:auto;width:auto;margin:8px}.map{height:65vh}}
