@@ -8,3 +8,7 @@
 .map-toolbar input{background:#101720;border:1px solid #39424d;color:#f5efe2;border-radius:7px;padding:7px}
 .result-card{position:absolute;z-index:5;right:16px;bottom:16px;width:min(380px,calc(100% - 32px));display:grid;gap:5px;padding:14px;border:1px solid #8f7743;border-radius:12px;background:rgba(9,13,19,.94);font-size:12px}
 .result-card strong{color:#e6c77c}.result-card small{color:#aab1b9;line-height:1.4}.result-card.error{border-color:#9f4a4a;color:#ffd1d1}
+
+.auth-panel{position:absolute;z-index:6;left:12px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;max-width:min(720px,calc(100% - 430px));padding:9px 10px;border:1px solid #303844;border-radius:10px;background:rgba(9,13,19,.94);font-size:11px}
+.auth-panel strong{color:#c9d0d7}.auth-panel input{width:150px;background:#101720;border:1px solid #39424d;color:#f5efe2;border-radius:7px;padding:7px}.auth-panel button{border:1px solid #586473;background:#171d24;color:#f8f0df;border-radius:7px;padding:7px 9px;cursor:pointer}
+@media(max-width:900px){.auth-panel{position:relative;left:auto;bottom:auto;max-width:none;margin:8px}.result-card{bottom:8px}.map-toolbar{right:12px}}
