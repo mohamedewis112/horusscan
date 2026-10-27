@@ -6,7 +6,7 @@
 
 HorusScan is a scientific decision-support system for AI-assisted remote archaeological prospection. It detects and ranks geospatial anomalies from Earth-observation evidence; it does **not** claim excavation confirmation, exact subsurface geometry, or tomb depth from satellite imagery alone.
 
-## Current implementation — Milestone 2
+## Current implementation — Milestone 3
 
 The `develop` branch now contains a real working-core bootstrap:
 
@@ -29,6 +29,12 @@ The `develop` branch now contains a real working-core bootstrap:
 - Explicit labeling that anomaly rank is **not** archaeological probability.
 - Supabase/PostgreSQL backend with PostGIS, pgvector, RLS, spatial indexes, model/audit tables.
 - GitHub Actions checks for web type/build validation and Python lint/tests.
+- Scientific validation dataset from public UNESCO World Heritage coordinates.
+- Regional geographic holdout: calibration / validation / locked blind-test.
+- Known-site rediscovery benchmark using the same real multisensor pipeline.
+- Deterministic unlabeled controls spatially separated from public known-site centers.
+- Rediscovery Rate, Precision@High-Priority proxy, PR-AUC proxy and ROC-AUC proxy.
+- Persisted per-case benchmark evidence and a one-completed-run blind-test lock.
 
 ## Repository layout
 
@@ -80,6 +86,7 @@ API:
 - `POST /v1/scenes/sentinel-2`
 - `POST /v1/analysis/sentinel-2-baseline`
 - `POST /v1/analysis/multisensor-baseline`
+- `POST /v1/validation/run`
 
 ## Scientific status
 
