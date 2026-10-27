@@ -409,3 +409,58 @@ async def reference_fingerprint(slug: str) -> dict[str, Any]:
             "public_reference_source": site["source"],
         },
     }
+
+
+
+@router.get("/smoke-polygon")
+async def smoke_council_polygon() -> dict[str, Any]:
+    polygon = [
+        (31.2050, 29.9230),
+        (31.2190, 29.9230),
+        (31.2190, 29.9380),
+        (31.2120, 29.9340),
+        (31.2050, 29.9300),
+    ]
+    request = CouncilRequest(
+        bbox=(31.2050, 29.9230, 31.2190, 29.9380),
+        aoi_polygon=polygon,
+        start=datetime.fromisoformat("2026-04-01T00:00:00+00:00"),
+        end=datetime.fromisoformat("2026-10-26T23:59:59+00:00"),
+        max_cloud=25.0,
+        fusion_profile="calibration_v1",
+        max_candidates=10,
+    )
+    result = await analyze_with_horus_council(request)
+
+    def inside(point: tuple[float, float]) -> bool:
+        lon, lat = point
+        flag = False
+        vertices = polygon
+        j = len(vertices) - 1
+        for i, (xi, yi) in enumerate(vertices):
+            xj, yj = vertices[j]
+            intersects = ((yi > lat) != (yj > lat)) and (
+                lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi
+            )
+            if intersects:
+                flag = not flag
+            j = i
+        return flag
+
+    checks = []
+    for item in result["council"]["candidates"]:
+        center = item["approximate_center"]
+        point = (float(center["lon"]), float(center["lat"]))
+        checks.append({
+            "candidate_id": item["candidate_id"],
+            "center": center,
+            "inside_polygon": inside(point),
+        })
+
+    return {
+        "status": "completed",
+        "aoi": result["aoi"],
+        "candidate_count": len(checks),
+        "all_candidates_inside_polygon": all(row["inside_polygon"] for row in checks),
+        "candidates": checks,
+    }
