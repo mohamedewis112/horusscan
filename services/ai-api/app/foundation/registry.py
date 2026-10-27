@@ -86,6 +86,14 @@ MODEL_SPECS = (
         modalities=("global_10m_embeddings", "annual_embeddings", "multimodal"),
     ),
     ModelSpec(
+        key="thermal_inertia",
+        family="physics-informed-model",
+        role="day_night_thermal_inertia_estimation",
+        endpoint_env="THERMAL_INERTIA_INFERENCE_URL",
+        checkpoint_env="THERMAL_INERTIA_CHECKPOINT",
+        modalities=("ecostress_day_night", "landsat_lst", "surface_context"),
+    ),
+    ModelSpec(
         key="physics_sar",
         family="physics-informed-model",
         role="soil_moisture_roughness_inversion",
