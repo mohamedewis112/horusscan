@@ -1127,6 +1127,7 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
             "concentration_ratio": evaluation.concentration_ratio,
             "detected_high_priority": evaluation.detected_high_priority,
         },
+        "per_branch_evaluation": per_branch_evaluation,
         "branches_used": result["branches_used"],
         "fusion_summary": result["fusion"]["summary"],
         "limitations": result["limitations"],
