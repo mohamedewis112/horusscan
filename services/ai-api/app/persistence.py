@@ -179,8 +179,7 @@ class SupabasePersistence:
         params = {
             "dataset_version": f"eq.{dataset_version}",
             "select": (
-                "id,name,region_group,split,evaluation_radius_m,"
-                "center_geojson:st_asgeojson(center)"
+                "id,name,region_group,split,evaluation_radius_m,latitude,longitude"
             ),
         }
         if split != "all":
