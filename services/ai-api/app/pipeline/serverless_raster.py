@@ -714,6 +714,7 @@ async def run_serverless_hyperfusion(
     start: datetime,
     end: datetime,
     max_cloud: float = 20.0,
+    include_branch_heatmaps: bool = False,
 ) -> dict[str, Any]:
     discovery = await asyncio.gather(
         search_pc_collection("sentinel-2-l2a", bbox, start, end, max_cloud, 5),
@@ -746,6 +747,7 @@ async def run_serverless_hyperfusion(
     evidence: dict[str, np.ndarray] = {"spectral": spectral["score"]}
     branches: dict[str, Any] = {"spectral": spectral["summary"]}
     provenance: dict[str, Any] = {"spectral": spectral["provenance"]}
+    branch_heatmaps: dict[str, Any] = {"spectral": spectral["heatmap"]}
     limitations: dict[str, str] = {}
 
     # Use the same 192x192 grid for all optional branches so fusion remains pixel-aligned.
@@ -762,6 +764,7 @@ async def run_serverless_hyperfusion(
                 evidence["sar"] = sar["score"]
             branches["sar"] = sar["summary"]
             provenance["sar"] = sar["provenance"]
+            branch_heatmaps["sar"] = sar["heatmap"]
         except Exception as exc:
             limitations["sar"] = f"{type(exc).__name__}: {exc}"
 
@@ -777,6 +780,7 @@ async def run_serverless_hyperfusion(
                 evidence["terrain"] = terrain["score"]
             branches["terrain"] = terrain["summary"]
             provenance["terrain"] = terrain["provenance"]
+            branch_heatmaps["terrain"] = terrain["heatmap"]
         except Exception as exc:
             limitations["terrain"] = f"{type(exc).__name__}: {exc}"
 
@@ -792,6 +796,7 @@ async def run_serverless_hyperfusion(
                 evidence["thermal"] = thermal["score"]
             branches["thermal"] = thermal["summary"]
             provenance["thermal"] = thermal["provenance"]
+            branch_heatmaps["thermal"] = thermal["heatmap"]
         except Exception as exc:
             limitations["thermal"] = f"{type(exc).__name__}: {exc}"
 
@@ -815,6 +820,7 @@ async def run_serverless_hyperfusion(
                 evidence[f"olmoearth_{olmo_year}"] = olmo["score"]
             branches[f"olmoearth_{olmo_year}"] = olmo["summary"]
             provenance[f"olmoearth_{olmo_year}"] = olmo["provenance"]
+            branch_heatmaps[f"olmoearth_{olmo_year}"] = olmo["heatmap"]
         except Exception as exc:
             limitations["olmoearth"] = f"{type(exc).__name__}: {exc}"
     else:
@@ -825,6 +831,7 @@ async def run_serverless_hyperfusion(
     fusion = fuse_serverless_layers(evidence, bbox)
     return {
         "real_data": True,
+        "branch_heatmaps": branch_heatmaps if include_branch_heatmaps else None,
         "engine": "horus-hyperfusion-serverless-v1",
         "branches_used": list(evidence),
         "branches": branches,
