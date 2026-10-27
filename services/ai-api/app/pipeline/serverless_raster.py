@@ -22,6 +22,25 @@ PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
 PC_TILER = "https://planetarycomputer.microsoft.com/api/data/v1"
 
 
+CALIBRATION_V1_WEIGHTS = {
+    "spectral": 0.7902439726902944,
+    "sar": 0.8741349766323481,
+    "terrain": 1.0054733125045956,
+    "thermal": 1.5,
+    "olmoearth": 0.96207601682545,
+}
+
+CALIBRATION_V1_METADATA = {
+    "dataset": "unesco-egypt-public-v1-2026-10-27",
+    "cases": ["Abu Mena", "Site of Memphis"],
+    "controls": "deterministic_unlabeled_controls",
+    "formula": "clip(exp(1.5 * mean(site_rediscovery-control_rediscovery)), 0.65, 1.5)",
+    "validation_cases_excluded_from_tuning": ["Temple of Karnak", "Temple of Luxor"],
+    "large_landscape_case_excluded": "Pyramid fields from Giza to Dahshur",
+}
+
+
+
 @dataclass(frozen=True)
 class ServerlessScene:
     collection: str
@@ -624,12 +643,22 @@ async def analyze_thermal_serverless(
     }
 
 
+def _profile_weight(name: str, profile: str) -> float:
+    if profile != "calibration_v1":
+        return 1.0
+    key = "olmoearth" if name.startswith("olmoearth_") else name
+    return float(CALIBRATION_V1_WEIGHTS.get(key, 1.0))
+
+
 def fuse_serverless_layers(
     layers: dict[str, np.ndarray],
     bbox: tuple[float, float, float, float],
+    profile: str = "equal_v0",
 ) -> dict[str, Any]:
     if not layers:
         raise ValueError("No evidence layers available for HyperFusion.")
+    if profile not in {"equal_v0", "calibration_v1"}:
+        raise ValueError(f"Unknown HyperFusion profile: {profile}")
 
     target_shape = next(iter(layers.values())).shape
     aligned = {
@@ -643,29 +672,40 @@ def fuse_serverless_layers(
     names = list(aligned)
     cube = np.stack([aligned[name] for name in names], axis=0).astype(np.float32)
     valid = np.isfinite(cube)
+
+    weights = np.asarray(
+        [_profile_weight(name, profile) for name in names],
+        dtype=np.float32,
+    )[:, None, None]
+    effective_weights = weights * valid
+    weight_sum = np.sum(effective_weights, axis=0)
     valid_count = np.sum(valid, axis=0)
 
     clipped = np.clip(cube, 1e-4, 1.0)
-    log_sum = np.nansum(np.log(clipped), axis=0)
+    weighted_log = np.nansum(np.log(clipped) * effective_weights, axis=0)
     geometric = np.exp(
         np.divide(
-            log_sum,
-            valid_count,
-            out=np.zeros_like(log_sum, dtype=np.float32),
-            where=valid_count > 0,
+            weighted_log,
+            weight_sum,
+            out=np.zeros_like(weighted_log, dtype=np.float32),
+            where=weight_sum > 0,
         )
     )
-    high_votes = np.sum((cube >= 0.75) & valid, axis=0)
+
+    weighted_high = np.sum(
+        ((cube >= 0.75) & valid) * weights,
+        axis=0,
+    )
     agreement = np.divide(
-        high_votes,
-        valid_count,
+        weighted_high,
+        weight_sum,
         out=np.zeros_like(geometric, dtype=np.float32),
-        where=valid_count > 0,
+        where=weight_sum > 0,
     )
     coverage = valid_count.astype(np.float32) / float(len(names))
 
     fused = np.where(
-        valid_count > 0,
+        weight_sum > 0,
         np.clip(
             0.65 * geometric
             + 0.25 * agreement
@@ -687,6 +727,10 @@ def fuse_serverless_layers(
     else:
         evidence_agreement = "conflicting"
 
+    reliability_weights = {
+        name: _profile_weight(name, profile) for name in names
+    }
+
     return {
         "summary": _summary(
             fused,
@@ -697,7 +741,12 @@ def fuse_serverless_layers(
                 "agreement_fraction": strong_fraction,
                 "mean_sensor_coverage": float(np.nanmean(coverage)),
                 "calibrated_probability": False,
-                "fusion_method": "geometric_evidence+agreement+coverage_gating",
+                "fusion_method": "reliability_weighted_geometric_evidence+agreement+coverage_gating",
+                "fusion_profile": profile,
+                "reliability_weights": reliability_weights,
+                "calibration_metadata": (
+                    CALIBRATION_V1_METADATA if profile == "calibration_v1" else None
+                ),
             },
         ),
         "heatmap": _heatmap_geojson(fused, bbox),
@@ -705,9 +754,10 @@ def fuse_serverless_layers(
         "provenance": {
             "inputs": names,
             "engine": "horus-hyperfusion-serverless-v1",
+            "fusion_profile": profile,
+            "reliability_weights": reliability_weights,
         },
     }
-
 
 async def run_serverless_hyperfusion(
     bbox: tuple[float, float, float, float],
@@ -715,6 +765,7 @@ async def run_serverless_hyperfusion(
     end: datetime,
     max_cloud: float = 20.0,
     include_branch_heatmaps: bool = False,
+    fusion_profile: str = "equal_v0",
 ) -> dict[str, Any]:
     discovery = await asyncio.gather(
         search_pc_collection("sentinel-2-l2a", bbox, start, end, max_cloud, 5),
@@ -828,7 +879,7 @@ async def run_serverless_hyperfusion(
             "Global OlmoEarth v1.3 embeddings are only guaranteed for 2023-2025."
         )
 
-    fusion = fuse_serverless_layers(evidence, bbox)
+    fusion = fuse_serverless_layers(evidence, bbox, profile=fusion_profile)
     return {
         "real_data": True,
         "branch_heatmaps": branch_heatmaps if include_branch_heatmaps else None,
