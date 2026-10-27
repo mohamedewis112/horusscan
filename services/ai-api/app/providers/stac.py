@@ -19,7 +19,7 @@ class Scene:
     provider: str
     collection: str
     item_id: str
-    datetime: str
+    datetime: str | None
     cloud_cover: float | None
     geometry: dict[str, Any]
     assets: dict[str, Any]
@@ -32,7 +32,11 @@ def _scene_from_stac_item(item: Any, provider: str) -> Scene:
         provider=provider,
         collection=item.collection_id or "unknown",
         item_id=item.id,
-        datetime=item.datetime.isoformat() if item.datetime else str(item.properties.get("datetime")),
+        datetime=(
+            item.datetime.isoformat()
+            if item.datetime
+            else item.properties.get("datetime") or item.properties.get("start_datetime")
+        ),
         cloud_cover=item.properties.get("eo:cloud_cover"),
         geometry=item.geometry,
         assets={key: asset.to_dict() for key, asset in item.assets.items()},
@@ -127,7 +131,7 @@ def search_sentinel1_rtc(
         max_items=limit,
     )
     items = list(search.items())
-    items.sort(key=lambda item: item.datetime or datetime.min, reverse=True)
+    items.sort(key=lambda item: item.datetime.timestamp() if item.datetime else 0.0, reverse=True)
     return [_scene_from_stac_item(item, "microsoft-planetary-computer") for item in items[:limit]]
 
 
