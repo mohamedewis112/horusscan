@@ -139,3 +139,38 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
             "that archaeology is present."
         ),
     }
+
+
+@router.get("/smoke")
+async def smoke_council() -> dict[str, Any]:
+    request = CouncilRequest(
+        bbox=(31.20, 29.92, 31.22, 29.94),
+        start=datetime.fromisoformat("2026-04-01T00:00:00+00:00"),
+        end=datetime.fromisoformat("2026-10-26T23:59:59+00:00"),
+        max_cloud=25.0,
+        fusion_profile="calibration_v1",
+        max_candidates=3,
+    )
+    result = await analyze_with_horus_council(request)
+    return {
+        "status": "completed",
+        "real_data": result["real_data"],
+        "engine": result["engine"],
+        "branches_used": result["branches_used"],
+        "candidate_count": result["council"]["candidate_count"],
+        "candidate_summary": [
+            {
+                "candidate_id": item["candidate_id"],
+                "priority": item["priority"],
+                "evidence_confidence_index": item["evidence_confidence_index"],
+                "uncertainty_band": item["uncertainty_band"],
+                "independent_support_count": item["independent_support_count"],
+                "model_agreement": item["council_summary"]["model_agreement"],
+                "critic_verdict": item["critic"]["verdict"],
+            }
+            for item in result["council"]["candidates"]
+        ],
+        "model_states": result["model_states"],
+        "limitations": list(result["limitations"].keys()),
+        "scientific_status": result["scientific_status"],
+    }
