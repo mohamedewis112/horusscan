@@ -8,6 +8,7 @@ import httpx
 import os
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from app.council_router import router as council_router
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -28,6 +29,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["authorization", "content-type"],
 )
+
+app.include_router(council_router)
 
 
 
