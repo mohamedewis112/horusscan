@@ -25,7 +25,7 @@ from app.providers.stac import (
 
 app = FastAPI(
     title="HorusScan AI API",
-    version="0.2.0",
+    version="0.3.0",
     description="Remote-sensing analysis service. No fake scores or excavation claims.",
 )
 
@@ -94,7 +94,7 @@ def bearer_from_header(authorization: str | None) -> str | None:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "horusscan-ai-api", "version": "0.2.0"}
+    return {"status": "ok", "service": "horusscan-ai-api", "version": "0.3.0"}
 
 
 @app.post("/v1/scenes/sentinel-2")
@@ -554,10 +554,15 @@ async def run_validation_benchmark(
                 )
 
         metrics = compute_benchmark_metrics(rows)
+        successful_positive_cases = sum(
+            row.get("case_type") == "positive" and row.get("rediscovery_score") is not None
+            for row in rows
+        )
+        run_status = "completed" if successful_positive_cases == len(sites) else "inconclusive"
         await persistence.update_validation_run(
             run_id,
             {
-                "status": "completed",
+                "status": run_status,
                 "completed_cases": completed,
                 "metrics": metrics,
                 "finished_at": datetime.utcnow().isoformat() + "Z",
@@ -565,6 +570,7 @@ async def run_validation_benchmark(
         )
         return {
             "validation_run_id": run_id,
+            "status": run_status,
             "dataset_version": request.dataset_version,
             "split": request.split,
             "completed_cases": completed,
