@@ -637,6 +637,37 @@ async def run_hyperfusion_proxy(
     payload: dict,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict:
+    if os.getenv("SERVERLESS_RASTER_MODE", "false").lower() == "true":
+        from app.pipeline.serverless_raster import run_serverless_hyperfusion
+
+        try:
+            bbox = tuple(float(value) for value in payload["bbox"])
+            start = datetime.fromisoformat(str(payload["start"]).replace("Z", "+00:00"))
+            end = datetime.fromisoformat(str(payload["end"]).replace("Z", "+00:00"))
+            max_cloud = float(payload.get("max_cloud", 20.0))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid HyperFusion payload: {exc}") from exc
+
+        validate_bbox(bbox)
+        try:
+            result = await run_serverless_hyperfusion(
+                bbox,
+                start,
+                end,
+                max_cloud=max_cloud,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Serverless HyperFusion failed: {type(exc).__name__}: {exc}",
+            ) from exc
+
+        result["persisted"] = False
+        result["persistence_note"] = (
+            "Serverless preview executes real EO inference without service-role persistence."
+        )
+        return result
+
     from app.routes.advanced import HyperFusionRequest, run_hyperfusion_v0
 
     return await run_hyperfusion_v0(
@@ -767,3 +798,56 @@ async def smoke_spectral() -> dict:
         ),
     }
 
+
+
+
+@app.get("/v1/smoke/hyperfusion")
+async def smoke_hyperfusion() -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    from datetime import timedelta, timezone
+
+    try:
+        from app.pipeline.serverless_raster import run_serverless_hyperfusion
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "import_serverless_hyperfusion",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    bbox = (31.20, 29.92, 31.22, 29.94)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=180)
+
+    try:
+        result = await run_serverless_hyperfusion(
+            bbox,
+            start,
+            end,
+            max_cloud=25.0,
+        )
+    except Exception as exc:
+        return {
+            "real_data": False,
+            "status": "failed",
+            "stage": "serverless_hyperfusion",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    return {
+        "real_data": True,
+        "status": "completed",
+        "engine": result["engine"],
+        "branches_used": result["branches_used"],
+        "branch_summaries": result["branches"],
+        "fusion_summary": result["fusion"]["summary"],
+        "discovery": result["discovery"],
+        "limitations": result["limitations"],
+        "discovery_errors": result["discovery_errors"],
+        "scientific_status": result["scientific_status"],
+    }
