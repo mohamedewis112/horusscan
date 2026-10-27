@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from typing import Any
 
 import numpy as np
@@ -13,7 +14,9 @@ from app.pipeline.council import build_council_report
 from app.pipeline.serverless_raster import (
     fuse_serverless_layers,
     run_serverless_hyperfusion,
+    search_pc_collection,
 )
+from app.pipeline.physics_sar import analyze_physics_sar
 
 
 router = APIRouter(prefix="/v1/council", tags=["horus-council"])
@@ -84,11 +87,32 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
     if not evidence:
         raise HTTPException(status_code=502, detail="Council received no usable evidence layers.")
 
+    fusion_evidence = dict(evidence)
     fusion = fuse_serverless_layers(
-        evidence,
+        fusion_evidence,
         request.bbox,
         profile=request.fusion_profile,
     )
+
+    # Physics-SAR participates in adjudication but does not alter the calibrated
+    # candidate surface until it receives its own calibration profile.
+    if os.getenv("PHYSICS_SAR_SERVERLESS_ENABLED", "false").lower() == "true":
+        try:
+            sar_scenes = await search_pc_collection(
+                "sentinel-1-rtc",
+                request.bbox,
+                request.start,
+                request.end,
+                None,
+                6,
+            )
+            physics_sar = await analyze_physics_sar(sar_scenes, request.bbox)
+            evidence["physics_sar"] = physics_sar["score"]
+            branches["physics_sar"] = physics_sar["summary"]
+            provenance["physics_sar"] = physics_sar["provenance"]
+        except Exception as exc:
+            limitations["physics_sar"] = f"{type(exc).__name__}: {exc}"
+
     council = build_council_report(
         evidence=evidence,
         fused=fusion["score"],
@@ -122,6 +146,10 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
         "engine": "horus-council-v1",
         "fusion_profile": request.fusion_profile,
         "branches_used": list(evidence),
+        "fusion_branches_used": list(fusion_evidence),
+        "adjudication_only_branches": [
+            name for name in evidence if name not in fusion_evidence
+        ],
         "branches": branches,
         "provenance": provenance,
         "limitations": limitations,
