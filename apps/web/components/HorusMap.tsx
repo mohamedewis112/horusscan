@@ -18,7 +18,7 @@ type AnalysisResponse = {
     p90?: number;
     p99?: number;
   };
-  heatmap: GeoJSON.FeatureCollection<GeoJSON.Point, { anomaly_score: number }>;
+  heatmap: { type: "FeatureCollection"; features: Array<{ type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: { anomaly_score: number } }> };
   scientific_status: string;
 };
 
@@ -58,7 +58,7 @@ export default function HorusMap() {
 
     const sync = () => {
       const ring = points.length >= 3 ? [...points, points[0]] : points;
-      const data: GeoJSON.FeatureCollection = {
+      const data = {
         type: "FeatureCollection",
         features: points.length
           ? [{
