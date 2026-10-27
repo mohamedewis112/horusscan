@@ -17,6 +17,11 @@ from app.pipeline.serverless_raster import (
     search_pc_collection,
 )
 from app.pipeline.physics_sar import analyze_physics_sar
+from app.pipeline.archaeology_memory import (
+    center_mean_from_heatmap,
+    review_candidate_with_archaeology_memory,
+)
+from app.pipeline.reference_bank import REFERENCE_FINGERPRINTS, REFERENCE_SITES
 
 
 router = APIRouter(prefix="/v1/council", tags=["horus-council"])
@@ -122,6 +127,45 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
         max_candidates=request.max_candidates,
     )
 
+    memory_ready = bool(REFERENCE_FINGERPRINTS)
+    for candidate in council["candidates"]:
+        approx = candidate.get("approximate_center") or {}
+        review = review_candidate_with_archaeology_memory(
+            candidate.get("branch_scores") or {},
+            float(approx.get("lat", 0.0)),
+            float(approx.get("lon", 0.0)),
+        )
+        candidate["archaeology_memory"] = review
+
+        if review.get("status") == "ready":
+            candidate["consensus_matrix"].append(
+                {
+                    "member": "archaeology_memory",
+                    "independence_group": "archaeology_reference_memory",
+                    "verdict": review["memory_verdict"],
+                    "evidence_score": review["memory_similarity_score"],
+                    "adjudication_only": True,
+                }
+            )
+            candidate["consensus_matrix"].append(
+                {
+                    "member": "necropolis_context",
+                    "independence_group": "archaeology_reference_memory",
+                    "verdict": review["necropolis_verdict"],
+                    "evidence_score": review["necropolis_context_score"],
+                    "adjudication_only": True,
+                }
+            )
+
+    council["memory_layer"] = {
+        "status": "ready" if memory_ready else "awaiting_reference_fingerprints",
+        "reference_site_count": len(REFERENCE_SITES),
+        "fingerprint_count": len(REFERENCE_FINGERPRINTS),
+        "dataset_version": "egypt-arch-memory-v1-2026-10-27",
+        "adjudication_only": True,
+        "confidence_adjustment": 0.0,
+    }
+
     registry = get_model_registry()
     active_keys = set(evidence)
     model_states = []
@@ -159,7 +203,24 @@ async def analyze_with_horus_council(request: CouncilRequest) -> dict[str, Any]:
             "provenance": fusion["provenance"],
         },
         "council": council,
-        "model_states": model_states,
+        "model_states": model_states + [
+            {
+                "key": "archaeology_memory",
+                "role": "reference_fingerprint_retrieval",
+                "available": memory_ready,
+                "participates_in_this_run": memory_ready,
+                "inference_mode": "public_reference_retrieval",
+                "reason": None if memory_ready else "Reference fingerprints are not populated yet.",
+            },
+            {
+                "key": "necropolis_context",
+                "role": "funerary_context_reviewer",
+                "available": memory_ready,
+                "participates_in_this_run": memory_ready,
+                "inference_mode": "public_necropolis_reference_retrieval",
+                "reason": None if memory_ready else "Reference fingerprints are not populated yet.",
+            },
+        ],
         "discovery": base.get("discovery") or {},
         "scientific_status": (
             "Horus Council combines independent evidence families and available real model outputs. "
@@ -203,4 +264,76 @@ async def smoke_council() -> dict[str, Any]:
         "model_states": result["model_states"],
         "limitations": list(result["limitations"].keys()),
         "scientific_status": result["scientific_status"],
+    }
+
+
+
+@router.get("/reference-fingerprint/{slug}")
+async def reference_fingerprint(slug: str) -> dict[str, Any]:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Reference bootstrap is disabled.")
+
+    site = REFERENCE_SITES.get(slug)
+    if site is None:
+        raise HTTPException(status_code=404, detail="Unknown reference site.")
+
+    lat = float(site["lat"])
+    lon = float(site["lon"])
+    radius_m = int(site["radius_m"])
+    lat_delta = (radius_m * 2.2) / 111_320.0
+    lon_delta = (radius_m * 2.2) / (
+        111_320.0 * max(np.cos(np.deg2rad(lat)), 0.2)
+    )
+    bbox = (
+        lon - lon_delta,
+        lat - lat_delta,
+        lon + lon_delta,
+        lat + lat_delta,
+    )
+
+    result = await run_serverless_hyperfusion(
+        bbox,
+        datetime.fromisoformat("2024-10-27T00:00:00+00:00"),
+        datetime.fromisoformat("2026-10-26T23:59:59+00:00"),
+        max_cloud=25.0,
+        include_branch_heatmaps=True,
+        fusion_profile="calibration_v1",
+    )
+
+    fingerprint: dict[str, float] = {}
+    for name, heatmap in (result.get("branch_heatmaps") or {}).items():
+        if not isinstance(heatmap, dict):
+            continue
+        base_name = "olmoearth" if name.startswith("olmoearth_") else name
+        if base_name not in {"spectral", "sar", "terrain", "thermal", "olmoearth"}:
+            continue
+        fingerprint[base_name] = round(
+            center_mean_from_heatmap(heatmap, lat, lon, radius_m),
+            6,
+        )
+
+    fusion_center_score = center_mean_from_heatmap(
+        result["fusion"]["heatmap"],
+        lat,
+        lon,
+        radius_m,
+    )
+
+    return {
+        "status": "completed",
+        "slug": slug,
+        "name": site["name"],
+        "archetype": site["archetype"],
+        "site_type": site["site_type"],
+        "fingerprint": fingerprint,
+        "fusion_center_score": round(fusion_center_score, 6),
+        "fingerprint_version": "sensor-fingerprint-v1",
+        "real_data": True,
+        "not_probability": True,
+        "provenance": {
+            "branches_used": result.get("branches_used"),
+            "engine": result.get("engine"),
+            "period": ["2024-10-27", "2026-10-26"],
+            "public_reference_source": site["source"],
+        },
     }
