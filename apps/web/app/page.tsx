@@ -1,6 +1,4 @@
-import dynamic from "next/dynamic";
-
-const HorusMap = dynamic(() => import("../components/HorusMap"), { ssr: false });
+import HorusMap from "../components/HorusMap";
 
 export default function HomePage() {
   return (
