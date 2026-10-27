@@ -163,7 +163,9 @@ async def read_pc_item_assets_npy(
         raise RuntimeError(f"Unexpected NumpyTile shape: {array.shape}")
 
     data = array[: len(assets)].astype(np.float32)
-    if array.shape[0] > len(assets):
+    if not return_mask:
+        mask = np.all(np.isfinite(data), axis=0)
+    elif array.shape[0] > len(assets):
         mask = array[-1] > 0
     else:
         mask = np.all(np.isfinite(data), axis=0)
