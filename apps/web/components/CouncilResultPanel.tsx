@@ -33,12 +33,36 @@ type CouncilCandidate = {
     neutral_count: number;
     model_agreement: string;
   };
+  multi_scale_review?: {
+    round_count: number;
+    passed_rounds: number;
+    stability_score: number;
+    verdict: string;
+    rounds: Array<{
+      round: string;
+      radius_cells: number;
+      local_score: number;
+      percentile: number;
+      accepted: boolean;
+    }>;
+  };
 };
 
 export type HorusCouncil = {
   version: string;
   fusion_profile: string;
   candidate_count: number;
+  coverage_summary?: {
+    valid_pixels: number;
+    total_pixels: number;
+    coverage_fraction: number;
+    branch_count: number;
+    independent_group_count: number;
+    independent_groups: string[];
+    review_rounds: number;
+    score_distribution?: Record<string, number>;
+    area_share_above_absolute_score?: Record<string, number>;
+  };
   candidates: CouncilCandidate[];
   method: Record<string, string>;
 };
@@ -107,6 +131,27 @@ export default function CouncilResultPanel({
         وليست احتمالًا مؤكدًا لوجود أثر أو مبنى مدفون.
       </p>
 
+      {council.coverage_summary && (
+        <div className="coverage-summary">
+          <div>
+            <span>تغطية التحليل</span>
+            <strong>{Math.round(council.coverage_summary.coverage_fraction * 100)}%</strong>
+          </div>
+          <div>
+            <span>الخلايا التي تمت مراجعتها</span>
+            <strong>{council.coverage_summary.valid_pixels.toLocaleString("ar-EG")}</strong>
+          </div>
+          <div>
+            <span>عائلات أدلة مستقلة</span>
+            <strong>{council.coverage_summary.independent_group_count}</strong>
+          </div>
+          <div>
+            <span>جولات المراجعة المكانية</span>
+            <strong>{council.coverage_summary.review_rounds}</strong>
+          </div>
+        </div>
+      )}
+
       <div className="candidate-list">
         {council.candidates.map((candidate) => (
           <article
@@ -141,6 +186,11 @@ export default function CouncilResultPanel({
               </span>
               <span>عدم يقين مكاني: ±{Math.round(candidate.spatial_uncertainty_m)} م</span>
               <span>اتفاق المجلس: {candidate.council_summary.model_agreement}</span>
+              {candidate.multi_scale_review && (
+                <span>
+                  ثبات المرشح عبر المراجعات: {candidate.multi_scale_review.passed_rounds}/{candidate.multi_scale_review.round_count}
+                </span>
+              )}
             </div>
 
             <div className="consensus-grid">
