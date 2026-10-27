@@ -16,6 +16,7 @@ from app.pipeline.raster_baseline import analyze_scene
 from app.validation.benchmark import ValidationCase, compute_benchmark_metrics, deterministic_control
 from app.validation.runner import run_validation_case
 from app.routes.advanced import router as advanced_router
+from app.routes.geometry import router as geometry_router
 from app.routes.tournament import router as tournament_router
 from app.providers.stac import (
     search_copernicus_dem,
@@ -45,6 +46,7 @@ app.add_middleware(
 )
 
 app.include_router(advanced_router)
+app.include_router(geometry_router)
 app.include_router(tournament_router)
 
 
