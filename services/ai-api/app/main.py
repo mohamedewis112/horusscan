@@ -697,6 +697,7 @@ async def run_hyperfusion_proxy(
             start = datetime.fromisoformat(str(payload["start"]).replace("Z", "+00:00"))
             end = datetime.fromisoformat(str(payload["end"]).replace("Z", "+00:00"))
             max_cloud = float(payload.get("max_cloud", 20.0))
+            fusion_profile = str(payload.get("fusion_profile", "calibration_v1"))
             fusion_profile = str(
                 payload.get(
                     "fusion_profile",
@@ -1046,7 +1047,7 @@ async def smoke_olmoearth() -> dict:
 
 
 @app.get("/v1/smoke/rediscovery/{case_key}")
-async def smoke_rediscovery(case_key: str, control: bool = False, profile: str = "equal_v0") -> dict:
+async def smoke_rediscovery(case_key: str, control: bool = False, profile: str = "calibration_v1") -> dict:
     if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
         raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
 
