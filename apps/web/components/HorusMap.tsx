@@ -73,6 +73,7 @@ export default function HorusMap() {
   const [password, setPassword] = useState("");
   const [authStatus, setAuthStatus] = useState("Checking session…");
   const [signedIn, setSignedIn] = useState(false);
+  const persistenceEnabled = process.env.NEXT_PUBLIC_PERSISTENCE_ENABLED === "true";
 
   useEffect(() => {
     if (!supabase) {
@@ -299,22 +300,26 @@ export default function HorusMap() {
     setResult(null);
 
     try {
-      const persisted = await createPersistedRun();
+      const persisted = persistenceEnabled ? await createPersistedRun() : null;
       const base = process.env.NEXT_PUBLIC_AI_API_URL ?? "http://localhost:8000";
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (persisted) headers.authorization = `Bearer ${persisted.token}`;
+
       const response = await fetch(`${base}/v1/analysis/hyperfusion-v0`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${persisted.token}`,
-        },
+        headers,
         body: JSON.stringify({
           bbox,
           start: `${start}T00:00:00Z`,
           end: `${end}T23:59:59Z`,
           max_cloud: 20,
-          project_id: persisted.projectId,
-          aoi_id: persisted.aoiId,
-          analysis_run_id: persisted.runId,
+          ...(persisted
+            ? {
+                project_id: persisted.projectId,
+                aoi_id: persisted.aoiId,
+                analysis_run_id: persisted.runId,
+              }
+            : {}),
         }),
       });
       const payload = await response.json();
@@ -342,13 +347,13 @@ export default function HorusMap() {
           To
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
         </label>
-        <button className="primary" disabled={!bbox || busy || !signedIn} onClick={initiateScan}>
-          {busy ? "HYPERFUSION ANALYSIS…" : "INITIATE HORUS SCAN"}
+        <button className="primary" disabled={!bbox || busy || (persistenceEnabled && !signedIn)} onClick={initiateScan}>
+          {busy ? "HYPERFUSION ANALYSIS…" : persistenceEnabled ? "INITIATE HORUS SCAN" : "RUN LIVE HYPERFUSION"}
         </button>
       </div>
 
       <div className="auth-panel">
-        <strong>{authStatus}</strong>
+        <strong>{persistenceEnabled ? authStatus : "Live preview mode · scans are not persisted"}</strong>
         {!signedIn && (
           <>
             <input
