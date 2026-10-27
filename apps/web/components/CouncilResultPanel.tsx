@@ -2,7 +2,7 @@
 
 type CouncilCandidate = {
   candidate_id: string;
-  center: { lon: number; lat: number };
+  approximate_center: { lon: number; lat: number; precision: string };
   geometry: { type: "Polygon"; coordinates: number[][][] };
   evidence_confidence_index: number;
   confidence_kind: string;
@@ -81,10 +81,8 @@ const ALTERNATIVES: Record<string, string> = {
 
 export default function CouncilResultPanel({
   council,
-  onSelect,
 }: {
   council: HorusCouncil;
-  onSelect?: (candidate: CouncilCandidate) => void;
 }) {
   if (!council.candidates.length) {
     return (
@@ -114,7 +112,6 @@ export default function CouncilResultPanel({
           <article
             key={candidate.candidate_id}
             className="candidate-card"
-            onClick={() => onSelect?.(candidate)}
           >
             <div className="candidate-topline">
               <strong>{candidate.candidate_id}</strong>
@@ -170,7 +167,8 @@ export default function CouncilResultPanel({
             )}
 
             <div className="candidate-location">
-              مركز المرشح: {candidate.center.lat.toFixed(5)}, {candidate.center.lon.toFixed(5)}
+              مركز منطقة البحث التقريبي: {candidate.approximate_center.lat.toFixed(2)}, {candidate.approximate_center.lon.toFixed(2)}
+              <small> — ليست إحداثيات حفر دقيقة</small>
             </div>
           </article>
         ))}
