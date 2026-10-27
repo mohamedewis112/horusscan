@@ -1,5 +1,6 @@
 import HorusMap from "../components/HorusMap";
 import ValidationPanel from "../components/ValidationPanel";
+import ModelLabPanel from "../components/ModelLabPanel";
 
 export default function HomePage() {
   return (
@@ -23,6 +24,7 @@ export default function HomePage() {
             </span>
           </div>
           <ValidationPanel />
+          <ModelLabPanel />
         </aside>
         <HorusMap />
       </section>
