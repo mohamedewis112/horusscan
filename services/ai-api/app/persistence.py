@@ -278,7 +278,7 @@ class SupabasePersistence:
             response.raise_for_status()
 
 
-    async def has_completed_blind_run(
+    async def has_locked_blind_run(
         self,
         user_id: str,
         dataset_version: str,
@@ -287,7 +287,7 @@ class SupabasePersistence:
             "requested_by": f"eq.{user_id}",
             "dataset_version": f"eq.{dataset_version}",
             "split": "eq.blind_test",
-            "status": "eq.completed",
+            "status": "in.(running,completed,inconclusive)",
             "select": "id",
             "limit": "1",
         }
@@ -299,3 +299,21 @@ class SupabasePersistence:
             )
             response.raise_for_status()
             return bool(response.json())
+
+
+    async def list_all_validation_centers(
+        self,
+        dataset_version: str,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "dataset_version": f"eq.{dataset_version}",
+            "select": "id,latitude,longitude,evaluation_radius_m",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"{self.url}/rest/v1/validation_sites",
+                headers=self._service_headers(),
+                params=params,
+            )
+            response.raise_for_status()
+            return list(response.json())
