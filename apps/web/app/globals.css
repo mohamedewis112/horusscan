@@ -82,3 +82,10 @@
   .coverage-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .deep-review-summary{position:relative;left:auto;bottom:auto;width:auto;margin:8px}
 }
+
+
+.memory-layer-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 14px}.memory-layer-summary>div{display:grid;gap:3px;padding:9px;border:1px solid #4a4030;border-radius:8px;background:#14110b}.memory-layer-summary span{font-size:9px;color:#aa9b78}.memory-layer-summary strong{font-size:13px;color:#f0cf82}
+
+.memory-review-card{display:grid;gap:8px;margin:10px 0;padding:11px;border:1px solid #4e4330;border-radius:10px;background:linear-gradient(180deg,rgba(49,39,20,.55),rgba(13,18,24,.92))}.memory-review-head{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.memory-review-head>div{display:grid;gap:3px}.memory-review-head span{font-size:9px;color:#a99a7c}.memory-review-head strong{font-size:14px;color:#f1d18a}.memory-archetypes,.memory-matches{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.memory-archetypes b,.memory-matches b{font-size:9px;color:#c8b47f}.memory-archetypes span,.memory-matches span{font-size:9px;padding:4px 6px;border-radius:999px;background:#19232c;border:1px solid #39444e;color:#cbd4dc}.memory-review-card>small{font-size:8px;line-height:1.6;color:#7f8a94}
+
+@media(max-width:900px){.memory-layer-summary,.memory-review-head{grid-template-columns:1fr}}
