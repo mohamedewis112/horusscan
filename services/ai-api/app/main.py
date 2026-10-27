@@ -851,3 +851,85 @@ async def smoke_hyperfusion() -> dict:
         "discovery_errors": result["discovery_errors"],
         "scientific_status": result["scientific_status"],
     }
+
+
+
+@app.get("/v1/smoke/dem")
+async def smoke_dem() -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    import numpy as np
+    from app.pipeline.serverless_raster import (
+        read_pc_item_assets_npy,
+        search_pc_collection,
+    )
+
+    bbox = (31.20, 29.92, 31.22, 29.94)
+    try:
+        scenes = await search_pc_collection(
+            "cop-dem-glo-30",
+            bbox,
+            None,
+            None,
+            None,
+            4,
+        )
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "stage": "dem_search",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+
+    if not scenes:
+        return {"status": "inconclusive", "reason": "No DEM scene found."}
+
+    reports = []
+    for scene in scenes:
+        report = {
+            "item_id": scene.item_id,
+            "assets": list(scene.assets),
+        }
+        if "data" not in scene.assets:
+            report["error"] = "data asset missing"
+            reports.append(report)
+            continue
+        try:
+            cube, mask = await read_pc_item_assets_npy(
+                scene,
+                bbox,
+                ("data",),
+                width=192,
+                height=192,
+                return_mask=False,
+            )
+            raw = cube[0]
+            finite = raw[np.isfinite(raw)]
+            report.update(
+                {
+                    "shape": list(cube.shape),
+                    "mask_valid": int(mask.sum()),
+                    "finite_count": int(finite.size),
+                    "min": float(np.min(finite)) if finite.size else None,
+                    "max": float(np.max(finite)) if finite.size else None,
+                    "mean": float(np.mean(finite)) if finite.size else None,
+                    "zero_count": int(np.sum(finite == 0)) if finite.size else 0,
+                    "lt_minus_1000": int(np.sum(finite <= -1000)) if finite.size else 0,
+                }
+            )
+        except Exception as exc:
+            report.update(
+                {
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+        reports.append(report)
+
+    return {
+        "status": "completed",
+        "real_data": True,
+        "reports": reports,
+    }
