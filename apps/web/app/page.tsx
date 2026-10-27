@@ -1,5 +1,4 @@
 import HorusMapV2 from "../components/HorusMapV2";
-import ValidationPanel from "../components/ValidationPanel";
 import ModelLabPanel from "../components/ModelLabPanel";
 
 export default function HomePage() {
@@ -22,7 +21,6 @@ export default function HomePage() {
               Multi-model evidence council with calibrated fusion, structured disagreement, known-site validation, and a reserved final-test split.
             </span>
           </div>
-          <ValidationPanel />
           <ModelLabPanel />
         </aside>
         <HorusMapV2 />
