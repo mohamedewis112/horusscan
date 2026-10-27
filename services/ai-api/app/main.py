@@ -61,12 +61,29 @@ class ValidationRunRequest(BaseModel):
     include_unlabeled_controls: bool = True
 
 PUBLIC_REDISCOVERY_CASES = {
+    "abu_mena": {
+        "name": "Abu Mena",
+        "lat": 30.835833333,
+        "lon": 29.666666667,
+        "radius_m": 1200,
+        "source": "UNESCO World Heritage Centre property 90",
+        "split": "calibration",
+    },
+    "memphis": {
+        "name": "Site of Memphis",
+        "lat": 29.855500000,
+        "lon": 31.261055556,
+        "radius_m": 1500,
+        "source": "UNESCO World Heritage Centre component 86-001",
+        "split": "calibration",
+    },
     "karnak": {
         "name": "Temple of Karnak",
         "lat": 25.718888889,
         "lon": 32.657250000,
         "radius_m": 900,
         "source": "UNESCO World Heritage Centre component 087-001",
+        "split": "validation",
     },
     "luxor": {
         "name": "Temple of Luxor",
@@ -74,10 +91,14 @@ PUBLIC_REDISCOVERY_CASES = {
         "lon": 32.639027778,
         "radius_m": 600,
         "source": "UNESCO World Heritage Centre component 087-002",
+        "split": "validation",
     },
 }
 
 PUBLIC_FORBIDDEN_CENTERS = [
+    (30.835833333, 29.666666667, 1200),
+    (29.976040000, 31.130410000, 6000),
+    (29.855500000, 31.261055556, 1500),
     (25.718888889, 32.657250000, 900),
     (25.699861111, 32.639027778, 600),
     (25.731444444, 32.597027778, 3000),
@@ -866,6 +887,7 @@ async def smoke_hyperfusion() -> dict:
         "real_data": True,
         "status": "completed",
         "engine": result["engine"],
+        "per_branch_evaluation": per_branch_evaluation,
         "branches_used": result["branches_used"],
         "branch_summaries": result["branches"],
         "fusion_summary": result["fusion"]["summary"],
@@ -1058,6 +1080,7 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
             start,
             end,
             max_cloud=25.0,
+            include_branch_heatmaps=True,
         )
         evaluation = evaluate_heatmap(
             result["fusion"]["heatmap"],
@@ -1075,6 +1098,21 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
             "error": str(exc),
         }
 
+    per_branch_evaluation = {}
+    for branch_name, heatmap in (result.get("branch_heatmaps") or {}).items():
+        branch_eval = evaluate_heatmap(
+            heatmap,
+            center_lat=case.lat,
+            center_lon=case.lon,
+            radius_m=case.radius_m,
+        )
+        per_branch_evaluation[branch_name] = {
+            "rediscovery_score": branch_eval.rediscovery_score,
+            "center_block_percentile": branch_eval.center_block_percentile,
+            "concentration_ratio": branch_eval.concentration_ratio,
+            "detected_high_priority": branch_eval.detected_high_priority,
+        }
+
     return {
         "real_data": True,
         "status": "completed",
@@ -1082,6 +1120,7 @@ async def smoke_rediscovery(case_key: str, control: bool = False) -> dict:
         "case_name": case.name,
         "case_type": case.case_type,
         "public_source": fixture["source"] if not control else None,
+        "split": fixture.get("split"),
         "evaluation": {
             "rediscovery_score": evaluation.rediscovery_score,
             "center_block_percentile": evaluation.center_block_percentile,
