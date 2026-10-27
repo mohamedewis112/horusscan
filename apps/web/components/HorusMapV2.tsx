@@ -17,6 +17,56 @@ type FeatureCollection = {
   }>;
 };
 
+type GridFeatureCollection = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    geometry: { type: "Polygon"; coordinates: number[][][] };
+    properties: { anomaly_score: number };
+  }>;
+};
+
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function stableGridFromHeatmap(heatmap: FeatureCollection): GridFeatureCollection {
+  const points = heatmap.features
+    .map((feature) => ({
+      lon: Number(feature.geometry.coordinates[0]),
+      lat: Number(feature.geometry.coordinates[1]),
+      score: Number(feature.properties.anomaly_score),
+    }))
+    .filter((row) => Number.isFinite(row.lon) && Number.isFinite(row.lat) && Number.isFinite(row.score));
+
+  const uniqueLon = [...new Set(points.map((row) => row.lon))].sort((a, b) => a - b);
+  const uniqueLat = [...new Set(points.map((row) => row.lat))].sort((a, b) => a - b);
+  const lonSteps = uniqueLon.slice(1).map((value, index) => value - uniqueLon[index]).filter((value) => value > 0);
+  const latSteps = uniqueLat.slice(1).map((value, index) => value - uniqueLat[index]).filter((value) => value > 0);
+  const dx = median(lonSteps) || 0.0005;
+  const dy = median(latSteps) || 0.0005;
+
+  return {
+    type: "FeatureCollection",
+    features: points.map((point) => ({
+      type: "Feature",
+      properties: { anomaly_score: point.score },
+      geometry: {
+        type: "Polygon",
+        coordinates: [[
+          [point.lon - dx / 2, point.lat - dy / 2],
+          [point.lon + dx / 2, point.lat - dy / 2],
+          [point.lon + dx / 2, point.lat + dy / 2],
+          [point.lon - dx / 2, point.lat + dy / 2],
+          [point.lon - dx / 2, point.lat - dy / 2],
+        ]],
+      },
+    })),
+  };
+}
+
 type CouncilResponse = {
   engine: string;
   fusion_profile: string;
@@ -215,20 +265,31 @@ export default function HorusMapV2() {
     if (!map || !result) return;
 
     const draw = () => {
-      const heatSource = map.getSource("council-heat") as maplibregl.GeoJSONSource | undefined;
+      const stableGrid = stableGridFromHeatmap(result.fusion.heatmap);
+      const heatSource = map.getSource("council-grid") as maplibregl.GeoJSONSource | undefined;
       if (heatSource) {
-        heatSource.setData(result.fusion.heatmap);
+        heatSource.setData(stableGrid);
       } else {
-        map.addSource("council-heat", { type: "geojson", data: result.fusion.heatmap });
+        map.addSource("council-grid", { type: "geojson", data: stableGrid });
         map.addLayer({
-          id: "council-heat-layer",
-          type: "heatmap",
-          source: "council-heat",
+          id: "council-grid-layer",
+          type: "fill",
+          source: "council-grid",
           paint: {
-            "heatmap-weight": ["interpolate", ["linear"], ["get", "anomaly_score"], 0, 0, 1, 1],
-            "heatmap-intensity": 1.35,
-            "heatmap-radius": 28,
-            "heatmap-opacity": 0.72,
+            "fill-color": [
+              "interpolate",
+              ["linear"],
+              ["get", "anomaly_score"],
+              0.00, "#2456ff",
+              0.25, "#19bdf2",
+              0.45, "#25c86f",
+              0.62, "#d9d833",
+              0.78, "#ff9d22",
+              0.92, "#f04c2d",
+              1.00, "#c82323",
+            ],
+            "fill-opacity": 0.56,
+            "fill-outline-color": "rgba(255,255,255,0.08)",
           },
         });
       }
@@ -339,7 +400,7 @@ export default function HorusMapV2() {
           end: `${end}T23:59:59Z`,
           max_cloud: 20,
           fusion_profile: "calibration_v1",
-          max_candidates: 5,
+          max_candidates: 10,
         }),
       });
 
@@ -397,7 +458,7 @@ export default function HorusMapV2() {
         </label>
 
         <button className="primary scan-button" disabled={!bbox || busy} onClick={runCouncil}>
-          {busy ? "الموديلات تحلل وتتبادل الأدلة…" : "تشغيل Horus Council"}
+          {busy ? "تحليل شامل + 3 مراجعات مكانية…" : "تشغيل التحليل العميق"}
         </button>
       </div>
 
@@ -419,6 +480,14 @@ export default function HorusMapV2() {
           )}
         </div>
       )}
+
+      <div className="evidence-legend">
+        <span><i className="legend-blue" /> منخفض</span>
+        <span><i className="legend-green" /> متوسط</span>
+        <span><i className="legend-yellow" /> ملحوظ</span>
+        <span><i className="legend-red" /> مرتفع</span>
+        <small>ألوان ثابتة مع التكبير: اللون يعكس Score الخلية نفسها، وليس كثافة النقاط على الشاشة.</small>
+      </div>
 
       <div ref={containerRef} className="map map-enhanced" aria-label="خريطة HorusScan" />
 
