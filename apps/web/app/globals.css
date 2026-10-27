@@ -24,3 +24,11 @@
 .validation-error{margin-top:10px;color:#ffd1d1;font-size:12px}
 
 .blind-warning{margin-top:10px;padding:9px 10px;border:1px solid #7a6235;border-radius:8px;background:#17140d;color:#e6c77c;font-size:11px;line-height:1.45}
+
+.model-lab{margin-top:16px;padding:14px;border:1px solid #2d3640;border-radius:12px;background:#0d131b}
+.model-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
+.model-chip{display:grid;gap:3px;padding:8px;border:1px solid #2d3540;border-radius:8px;background:#121923;font-size:10px}
+.model-chip>span{font-weight:700;color:#eee4cb;overflow:hidden;text-overflow:ellipsis}.model-chip>small{color:#8c96a1}
+.model-chip .online{color:#88d6a0}.model-chip .offline{color:#c98787}
+.tournament-button{width:100%;margin-top:10px;padding:9px;border:1px solid #8f7743;border-radius:8px;background:#b99957;color:#0b0d10;font-weight:800;cursor:pointer}.tournament-button:disabled{opacity:.5;cursor:not-allowed}
+.tournament-ranking{display:grid;gap:6px;margin-top:10px}.tournament-ranking>div{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:7px;border-bottom:1px solid #29323b;font-size:11px}.tournament-ranking span{color:#9099a4}.tournament-ranking strong{color:#e6c77c}
