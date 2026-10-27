@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -7,6 +8,7 @@ from typing import Any
 
 import httpx
 import numpy as np
+from sklearn.ensemble import IsolationForest
 
 from app.pipeline.sentinel2 import (
     compute_spectral_features,
@@ -14,6 +16,19 @@ from app.pipeline.sentinel2 import (
     summarize_score,
 )
 
+
+PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
+PC_TILER = "https://planetarycomputer.microsoft.com/api/data/v1"
+
+
+@dataclass(frozen=True)
+class ServerlessScene:
+    collection: str
+    item_id: str
+    datetime: str | None
+    cloud_cover: float | None
+    properties: dict[str, Any]
+    assets: tuple[str, ...]
 
 
 def _heatmap_geojson(
@@ -45,17 +60,44 @@ def _heatmap_geojson(
     return {"type": "FeatureCollection", "features": features}
 
 
-PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
-PC_TILER = "https://planetarycomputer.microsoft.com/api/data/v1"
+async def search_pc_collection(
+    collection: str,
+    bbox: tuple[float, float, float, float],
+    start: datetime | None = None,
+    end: datetime | None = None,
+    max_cloud: float | None = None,
+    limit: int = 5,
+) -> list[ServerlessScene]:
+    payload: dict[str, Any] = {
+        "collections": [collection],
+        "bbox": list(bbox),
+        "limit": limit,
+    }
+    if start is not None and end is not None:
+        payload["datetime"] = f"{start.isoformat()}/{end.isoformat()}"
+        payload["sortby"] = [{"field": "properties.datetime", "direction": "desc"}]
+    if max_cloud is not None:
+        payload["query"] = {"eo:cloud_cover": {"lte": max_cloud}}
 
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(f"{PC_STAC}/search", json=payload)
+        response.raise_for_status()
+        features = response.json().get("features", [])
 
-@dataclass(frozen=True)
-class ServerlessScene:
-    collection: str
-    item_id: str
-    datetime: str | None
-    cloud_cover: float | None
-    properties: dict[str, Any]
+    return [
+        ServerlessScene(
+            collection=str(item.get("collection") or collection),
+            item_id=str(item["id"]),
+            datetime=(
+                item.get("properties", {}).get("datetime")
+                or item.get("properties", {}).get("start_datetime")
+            ),
+            cloud_cover=item.get("properties", {}).get("eo:cloud_cover"),
+            properties=item.get("properties", {}),
+            assets=tuple(sorted(item.get("assets", {}).keys())),
+        )
+        for item in features
+    ]
 
 
 async def search_pc_sentinel2(
@@ -65,29 +107,14 @@ async def search_pc_sentinel2(
     max_cloud: float = 25.0,
     limit: int = 5,
 ) -> list[ServerlessScene]:
-    payload = {
-        "collections": ["sentinel-2-l2a"],
-        "bbox": list(bbox),
-        "datetime": f"{start.isoformat()}/{end.isoformat()}",
-        "limit": limit,
-        "query": {"eo:cloud_cover": {"lte": max_cloud}},
-        "sortby": [{"field": "properties.datetime", "direction": "desc"}],
-    }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(f"{PC_STAC}/search", json=payload)
-        response.raise_for_status()
-        features = response.json().get("features", [])
-
-    return [
-        ServerlessScene(
-            collection=str(item.get("collection") or "sentinel-2-l2a"),
-            item_id=str(item["id"]),
-            datetime=item.get("properties", {}).get("datetime"),
-            cloud_cover=item.get("properties", {}).get("eo:cloud_cover"),
-            properties=item.get("properties", {}),
-        )
-        for item in features
-    ]
+    return await search_pc_collection(
+        "sentinel-2-l2a",
+        bbox,
+        start,
+        end,
+        max_cloud=max_cloud,
+        limit=limit,
+    )
 
 
 async def read_pc_item_assets_npy(
@@ -96,7 +123,15 @@ async def read_pc_item_assets_npy(
     assets: tuple[str, ...],
     width: int = 192,
     height: int = 192,
+    resampling: str = "bilinear",
+    unscale: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
+    missing = [asset for asset in assets if asset not in scene.assets]
+    if missing:
+        raise KeyError(
+            f"Scene {scene.item_id} missing assets {missing}; available={list(scene.assets)}"
+        )
+
     min_lon, min_lat, max_lon, max_lat = bbox
     url = (
         f"{PC_TILER}/item/bbox/"
@@ -108,7 +143,8 @@ async def read_pc_item_assets_npy(
         ("item", scene.item_id),
         ("asset_as_band", "true"),
         ("return_mask", "true"),
-        ("resampling", "bilinear"),
+        ("resampling", resampling),
+        ("unscale", "true" if unscale else "false"),
     ]
     params.extend(("assets", asset) for asset in assets)
 
@@ -133,11 +169,61 @@ async def read_pc_item_assets_npy(
     return data, mask
 
 
+def _isolation_score(features: list[np.ndarray], valid: np.ndarray) -> np.ndarray:
+    stack = np.stack(features, axis=-1).astype(np.float32)
+    valid = valid & np.all(np.isfinite(stack), axis=-1)
+    samples = stack[valid]
+    if samples.shape[0] < 256:
+        raise ValueError("Insufficient valid pixels for anomaly analysis.")
+
+    model = IsolationForest(
+        n_estimators=220,
+        contamination="auto",
+        random_state=42,
+        n_jobs=-1,
+    )
+    model.fit(samples)
+    raw_values = -model.score_samples(samples)
+
+    low, high = np.quantile(raw_values, [0.01, 0.99])
+    scaled = np.clip(
+        (raw_values - low) / max(float(high - low), 1e-6),
+        0.0,
+        1.0,
+    )
+
+    output = np.full(valid.shape, np.nan, dtype=np.float32)
+    output[valid] = scaled.astype(np.float32)
+    return output
+
+
+def _summary(
+    score: np.ndarray,
+    score_type: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    values = score[np.isfinite(score)]
+    result: dict[str, Any] = {
+        "status": "model_inference" if values.size else "insufficient_evidence",
+        "valid_pixels": int(values.size),
+        "score_type": score_type,
+        "not_probability": True,
+    }
+    if values.size:
+        result.update(
+            p50=float(np.quantile(values, 0.50)),
+            p90=float(np.quantile(values, 0.90)),
+            p99=float(np.quantile(values, 0.99)),
+        )
+    if extra:
+        result.update(extra)
+    return result
+
+
 async def analyze_sentinel2_serverless(
     scene: ServerlessScene,
     bbox: tuple[float, float, float, float],
 ) -> dict[str, Any]:
-    # Explicit order: blue, red, nir, swir1
     cube, mask = await read_pc_item_assets_npy(
         scene,
         bbox,
@@ -177,4 +263,438 @@ async def analyze_sentinel2_serverless(
         "summary": summary,
         "heatmap": _heatmap_geojson(score, bbox),
         "score": score,
+        "provenance": {
+            "provider": "microsoft-planetary-computer",
+            "collection": scene.collection,
+            "item_id": scene.item_id,
+            "datetime": scene.datetime,
+            "assets": ["B02", "B04", "B08", "B11"],
+        },
+    }
+
+
+async def analyze_sar_serverless(
+    scenes: list[ServerlessScene],
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    usable = [scene for scene in scenes if {"vv", "vh"}.issubset(scene.assets)][:4]
+    if not usable:
+        raise ValueError("No Sentinel-1 RTC scene with both VV and VH assets.")
+
+    reads = await asyncio.gather(
+        *[
+            read_pc_item_assets_npy(
+                scene,
+                bbox,
+                ("vv", "vh"),
+                width=160,
+                height=160,
+            )
+            for scene in usable
+        ],
+        return_exceptions=True,
+    )
+
+    vv_list: list[np.ndarray] = []
+    vh_list: list[np.ndarray] = []
+    masks: list[np.ndarray] = []
+    used: list[ServerlessScene] = []
+    for scene, result in zip(usable, reads):
+        if isinstance(result, Exception):
+            continue
+        cube, mask = result
+        vv, vh = cube
+        valid = mask & np.isfinite(vv) & np.isfinite(vh) & (vv > 0) & (vh > 0)
+        if valid.sum() < 256:
+            continue
+        vv = np.where(valid, vv, np.nan)
+        vh = np.where(valid, vh, np.nan)
+        vv_list.append(vv)
+        vh_list.append(vh)
+        masks.append(valid)
+        used.append(scene)
+
+    if not vv_list:
+        raise ValueError("Sentinel-1 RTC NumpyTile reads returned no usable VV/VH pixels.")
+
+    vv_cube = np.stack(vv_list)
+    vh_cube = np.stack(vh_list)
+    eps = np.float32(1e-8)
+    log_vv_cube = 10.0 * np.log10(np.maximum(vv_cube, eps))
+    log_vh_cube = 10.0 * np.log10(np.maximum(vh_cube, eps))
+
+    log_vv = np.nanmedian(log_vv_cube, axis=0)
+    log_vh = np.nanmedian(log_vh_cube, axis=0)
+    ratio = log_vv - log_vh
+    temporal_var = np.nanvar(log_vv_cube, axis=0)
+    gy, gx = np.gradient(log_vv)
+    texture = np.hypot(gx, gy)
+
+    valid = np.isfinite(log_vv) & np.isfinite(log_vh) & np.isfinite(temporal_var)
+    score = _isolation_score([log_vv, log_vh, ratio, temporal_var, texture], valid)
+
+    return {
+        "summary": _summary(
+            score,
+            "sentinel1_rtc_temporal_anomaly_rank",
+            {
+                "observations_used": len(used),
+                "temporal_stack": len(used) > 1,
+                "serverless_raster_path": True,
+            },
+        ),
+        "heatmap": _heatmap_geojson(score, bbox),
+        "score": score,
+        "provenance": {
+            "provider": "microsoft-planetary-computer",
+            "collection": "sentinel-1-rtc",
+            "scenes": [scene.item_id for scene in used],
+            "assets": ["vv", "vh"],
+        },
+    }
+
+
+async def analyze_dem_serverless(
+    scenes: list[ServerlessScene],
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    usable = [scene for scene in scenes if "data" in scene.assets][:4]
+    if not usable:
+        raise ValueError("No Copernicus DEM scene with data asset.")
+
+    reads = await asyncio.gather(
+        *[
+            read_pc_item_assets_npy(
+                scene,
+                bbox,
+                ("data",),
+                width=160,
+                height=160,
+            )
+            for scene in usable
+        ],
+        return_exceptions=True,
+    )
+
+    tiles: list[np.ndarray] = []
+    used: list[ServerlessScene] = []
+    for scene, result in zip(usable, reads):
+        if isinstance(result, Exception):
+            continue
+        cube, mask = result
+        elevation = np.where(mask & np.isfinite(cube[0]), cube[0], np.nan)
+        if np.isfinite(elevation).sum() < 256:
+            continue
+        tiles.append(elevation)
+        used.append(scene)
+
+    if not tiles:
+        raise ValueError("Copernicus DEM NumpyTile reads returned no usable pixels.")
+
+    elevation = np.nanmedian(np.stack(tiles), axis=0)
+    gy, gx = np.gradient(elevation)
+    slope = np.hypot(gx, gy)
+    gyy, _ = np.gradient(gy)
+    _, gxx = np.gradient(gx)
+    curvature = gxx + gyy
+    ry, rx = np.gradient(slope)
+    roughness = np.hypot(rx, ry)
+
+    valid = np.isfinite(elevation) & np.isfinite(slope) & np.isfinite(curvature)
+    score = _isolation_score([elevation, slope, curvature, roughness], valid)
+
+    return {
+        "summary": _summary(
+            score,
+            "terrain_morphology_anomaly_rank",
+            {
+                "tiles_used": len(used),
+                "serverless_raster_path": True,
+            },
+        ),
+        "heatmap": _heatmap_geojson(score, bbox),
+        "score": score,
+        "provenance": {
+            "provider": "microsoft-planetary-computer",
+            "collection": "cop-dem-glo-30",
+            "scenes": [scene.item_id for scene in used],
+            "asset": "data",
+        },
+    }
+
+
+async def analyze_thermal_serverless(
+    scenes: list[ServerlessScene],
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    usable: list[tuple[ServerlessScene, str]] = []
+    for scene in scenes:
+        if "lwir11" in scene.assets:
+            usable.append((scene, "lwir11"))
+        elif "lwir" in scene.assets:
+            usable.append((scene, "lwir"))
+        if len(usable) >= 5:
+            break
+
+    if not usable:
+        raise ValueError("No Landsat L2 surface-temperature asset available.")
+
+    reads = await asyncio.gather(
+        *[
+            read_pc_item_assets_npy(
+                scene,
+                bbox,
+                (asset,),
+                width=128,
+                height=128,
+                unscale=True,
+            )
+            for scene, asset in usable
+        ],
+        return_exceptions=True,
+    )
+
+    observations: list[np.ndarray] = []
+    used: list[tuple[ServerlessScene, str]] = []
+    for pair, result in zip(usable, reads):
+        if isinstance(result, Exception):
+            continue
+        scene, asset = pair
+        cube, mask = result
+        temp = np.where(mask & np.isfinite(cube[0]) & (cube[0] > 0), cube[0], np.nan)
+        if np.isfinite(temp).sum() < 256:
+            continue
+        observations.append(temp)
+        used.append((scene, asset))
+
+    if not observations:
+        raise ValueError("Landsat temperature NumpyTile reads returned no usable pixels.")
+
+    temp_cube = np.stack(observations)
+    median_temp = np.nanmedian(temp_cube, axis=0)
+    temporal_std = np.nanstd(temp_cube, axis=0)
+    gy, gx = np.gradient(median_temp)
+    spatial_gradient = np.hypot(gx, gy)
+    valid = np.isfinite(median_temp) & np.isfinite(temporal_std)
+
+    score = _isolation_score([median_temp, temporal_std, spatial_gradient], valid)
+    return {
+        "summary": _summary(
+            score,
+            "thermal_persistence_anomaly_rank",
+            {
+                "observations_used": len(used),
+                "serverless_raster_path": True,
+                "thermal_inertia_claim": False,
+            },
+        ),
+        "heatmap": _heatmap_geojson(score, bbox),
+        "score": score,
+        "provenance": {
+            "provider": "microsoft-planetary-computer",
+            "collection": "landsat-c2-l2",
+            "scenes": [
+                {"item_id": scene.item_id, "asset": asset, "datetime": scene.datetime}
+                for scene, asset in used
+            ],
+            "note": "Surface-temperature persistence; not day/night thermal inertia.",
+        },
+    }
+
+
+def fuse_serverless_layers(
+    layers: dict[str, np.ndarray],
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    if not layers:
+        raise ValueError("No evidence layers available for HyperFusion.")
+
+    target_shape = next(iter(layers.values())).shape
+    aligned = {
+        name: score
+        for name, score in layers.items()
+        if score.shape == target_shape
+    }
+    if not aligned:
+        raise ValueError("No shape-compatible evidence layers available.")
+
+    names = list(aligned)
+    cube = np.stack([aligned[name] for name in names], axis=0).astype(np.float32)
+    valid = np.isfinite(cube)
+    valid_count = np.sum(valid, axis=0)
+
+    clipped = np.clip(cube, 1e-4, 1.0)
+    log_sum = np.nansum(np.log(clipped), axis=0)
+    geometric = np.exp(
+        np.divide(
+            log_sum,
+            valid_count,
+            out=np.zeros_like(log_sum, dtype=np.float32),
+            where=valid_count > 0,
+        )
+    )
+    high_votes = np.sum((cube >= 0.75) & valid, axis=0)
+    agreement = np.divide(
+        high_votes,
+        valid_count,
+        out=np.zeros_like(geometric, dtype=np.float32),
+        where=valid_count > 0,
+    )
+    coverage = valid_count.astype(np.float32) / float(len(names))
+
+    fused = np.where(
+        valid_count > 0,
+        np.clip(
+            0.65 * geometric
+            + 0.25 * agreement
+            + 0.10 * coverage * geometric,
+            0.0,
+            1.0,
+        ),
+        np.nan,
+    ).astype(np.float32)
+
+    strong_fraction = float(
+        np.mean(agreement[np.isfinite(fused)] >= 0.66)
+    ) if np.isfinite(fused).any() else 0.0
+
+    if strong_fraction >= 0.25:
+        evidence_agreement = "strong"
+    elif strong_fraction >= 0.08:
+        evidence_agreement = "moderate"
+    else:
+        evidence_agreement = "conflicting"
+
+    return {
+        "summary": _summary(
+            fused,
+            "horus_hyperfusion_serverless_rank",
+            {
+                "sensors": names,
+                "evidence_agreement": evidence_agreement,
+                "agreement_fraction": strong_fraction,
+                "mean_sensor_coverage": float(np.nanmean(coverage)),
+                "calibrated_probability": False,
+                "fusion_method": "geometric_evidence+agreement+coverage_gating",
+            },
+        ),
+        "heatmap": _heatmap_geojson(fused, bbox),
+        "score": fused,
+        "provenance": {
+            "inputs": names,
+            "engine": "horus-hyperfusion-serverless-v1",
+        },
+    }
+
+
+async def run_serverless_hyperfusion(
+    bbox: tuple[float, float, float, float],
+    start: datetime,
+    end: datetime,
+    max_cloud: float = 20.0,
+) -> dict[str, Any]:
+    discovery = await asyncio.gather(
+        search_pc_collection("sentinel-2-l2a", bbox, start, end, max_cloud, 5),
+        search_pc_collection("sentinel-1-rtc", bbox, start, end, None, 6),
+        search_pc_collection("cop-dem-glo-30", bbox, None, None, None, 4),
+        search_pc_collection("landsat-c2-l2", bbox, start, end, max_cloud, 8),
+        return_exceptions=True,
+    )
+
+    labels = ("sentinel2", "sentinel1", "dem", "thermal")
+    discovery_errors = {
+        label: f"{type(value).__name__}: {value}" if isinstance(value, Exception) else None
+        for label, value in zip(labels, discovery)
+    }
+
+    s2_scenes = [] if isinstance(discovery[0], Exception) else discovery[0]
+    s1_scenes = [] if isinstance(discovery[1], Exception) else discovery[1]
+    dem_scenes = [] if isinstance(discovery[2], Exception) else discovery[2]
+    thermal_scenes = [] if isinstance(discovery[3], Exception) else discovery[3]
+
+    if not s2_scenes:
+        raise ValueError("No Sentinel-2 scene available for core HyperFusion branch.")
+
+    s2_scene = min(
+        s2_scenes,
+        key=lambda item: item.cloud_cover if item.cloud_cover is not None else 101.0,
+    )
+    spectral = await analyze_sentinel2_serverless(s2_scene, bbox)
+
+    evidence: dict[str, np.ndarray] = {"spectral": spectral["score"]}
+    branches: dict[str, Any] = {"spectral": spectral["summary"]}
+    provenance: dict[str, Any] = {"spectral": spectral["provenance"]}
+    limitations: dict[str, str] = {}
+
+    # Use the same 192x192 grid for all optional branches so fusion remains pixel-aligned.
+    # SAR/DEM/Thermal helper defaults are adjusted by upsampling requests below when needed.
+    if s1_scenes:
+        try:
+            sar = await analyze_sar_serverless(s1_scenes, bbox)
+            if sar["score"].shape != spectral["score"].shape:
+                limitations["sar"] = (
+                    f"SAR shape {sar['score'].shape} differs from spectral "
+                    f"{spectral['score'].shape}; branch retained for reporting but excluded from fusion."
+                )
+            else:
+                evidence["sar"] = sar["score"]
+            branches["sar"] = sar["summary"]
+            provenance["sar"] = sar["provenance"]
+        except Exception as exc:
+            limitations["sar"] = f"{type(exc).__name__}: {exc}"
+
+    if dem_scenes:
+        try:
+            terrain = await analyze_dem_serverless(dem_scenes, bbox)
+            if terrain["score"].shape != spectral["score"].shape:
+                limitations["terrain"] = (
+                    f"DEM shape {terrain['score'].shape} differs from spectral "
+                    f"{spectral['score'].shape}; branch retained for reporting but excluded from fusion."
+                )
+            else:
+                evidence["terrain"] = terrain["score"]
+            branches["terrain"] = terrain["summary"]
+            provenance["terrain"] = terrain["provenance"]
+        except Exception as exc:
+            limitations["terrain"] = f"{type(exc).__name__}: {exc}"
+
+    if thermal_scenes:
+        try:
+            thermal = await analyze_thermal_serverless(thermal_scenes, bbox)
+            if thermal["score"].shape != spectral["score"].shape:
+                limitations["thermal"] = (
+                    f"Thermal shape {thermal['score'].shape} differs from spectral "
+                    f"{spectral['score'].shape}; branch retained for reporting but excluded from fusion."
+                )
+            else:
+                evidence["thermal"] = thermal["score"]
+            branches["thermal"] = thermal["summary"]
+            provenance["thermal"] = thermal["provenance"]
+        except Exception as exc:
+            limitations["thermal"] = f"{type(exc).__name__}: {exc}"
+
+    fusion = fuse_serverless_layers(evidence, bbox)
+    return {
+        "real_data": True,
+        "engine": "horus-hyperfusion-serverless-v1",
+        "branches_used": list(evidence),
+        "branches": branches,
+        "provenance": provenance,
+        "fusion": {
+            "summary": fusion["summary"],
+            "heatmap": fusion["heatmap"],
+            "provenance": fusion["provenance"],
+        },
+        "discovery": {
+            "sentinel2_count": len(s2_scenes),
+            "sentinel1_count": len(s1_scenes),
+            "dem_count": len(dem_scenes),
+            "landsat_thermal_count": len(thermal_scenes),
+        },
+        "limitations": limitations,
+        "discovery_errors": discovery_errors,
+        "scientific_status": (
+            "Real-data serverless HyperFusion using Planetary Computer NumpyTiles. "
+            "Scores are evidence ranks, not calibrated archaeological probabilities."
+        ),
     }
