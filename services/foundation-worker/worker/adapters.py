@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from worker.dinov3 import DinoV3SatelliteAdapter
+from worker.dinov3_serverless import DinoV3ServerlessAdapter
 from worker.optional import OptionalExternalAdapter
 
 
@@ -24,7 +24,7 @@ class Adapter(ABC):
 
 
 _ADAPTERS = {
-    "dinov3_satellite": DinoV3SatelliteAdapter(),
+    "dinov3_satellite": DinoV3ServerlessAdapter(),
     "terramind": OptionalExternalAdapter("terramind"),
     "prithvi_eo_2": OptionalExternalAdapter("prithvi_eo_2"),
     "spectralearth_fm": OptionalExternalAdapter("spectralearth_fm"),
