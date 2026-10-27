@@ -12,17 +12,9 @@ type ModelState = {
   reason?: string | null;
 };
 
-type Ranking = {
-  model_key: string;
-  status: string;
-  composite_validation_score: number | null;
-  metrics: Record<string, unknown>;
-  availability_reason?: string | null;
-};
 
 export default function ModelLabPanel() {
   const [models, setModels] = useState<ModelState[]>([]);
-  const [ranking, setRanking] = useState<Ranking[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
