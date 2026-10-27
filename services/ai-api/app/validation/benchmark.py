@@ -34,27 +34,51 @@ def bbox_from_center(lat: float, lon: float, radius_m: int, margin: float = 2.2)
     return lon - lon_delta, lat - lat_delta, lon + lon_delta, lat + lat_delta
 
 
+def _approx_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    mean_lat = (lat1 + lat2) / 2.0
+    dy = (lat2 - lat1) * 111_320.0
+    dx = (lon2 - lon1) * 111_320.0 * max(cos(mean_lat * pi / 180.0), 0.2)
+    return float(np.hypot(dx, dy))
+
+
 def deterministic_control(
     lat: float,
     lon: float,
     radius_m: int,
     seed_index: int,
+    forbidden_centers: list[tuple[float, float, int]] | None = None,
 ) -> ValidationCase:
-    # Same broad landscape context but spatially separated from the public known-site center.
-    # These are explicitly UNLABELED controls, not asserted archaeological negatives.
-    direction = 1.0 if seed_index % 2 == 0 else -1.0
-    north_m = direction * radius_m * (5.5 + (seed_index % 3))
-    east_m = -direction * radius_m * (4.0 + ((seed_index + 1) % 3))
-    lat2 = lat + north_m / 111_320.0
-    lon2 = lon + east_m / (111_320.0 * max(cos(lat * pi / 180.0), 0.2))
-    return ValidationCase(
-        name=f"Unlabeled control near {lat:.3f},{lon:.3f}",
-        case_type="control_unlabeled",
-        lat=lat2,
-        lon=lon2,
-        radius_m=radius_m,
-        site_id=None,
-    )
+    # Same broad landscape context but spatially separated from all public known-site centers.
+    # Controls remain UNLABELED: they are never asserted to be archaeology-free.
+    forbidden_centers = forbidden_centers or []
+    lon_scale = 111_320.0 * max(cos(lat * pi / 180.0), 0.2)
+
+    for attempt in range(16):
+        angle = ((seed_index * 137.507764) + attempt * 47.0) * pi / 180.0
+        distance_m = radius_m * (6.0 + (attempt % 5))
+        north_m = np.sin(angle) * distance_m
+        east_m = np.cos(angle) * distance_m
+        lat2 = lat + north_m / 111_320.0
+        lon2 = lon + east_m / lon_scale
+
+        safe = True
+        for forbidden_lat, forbidden_lon, forbidden_radius in forbidden_centers:
+            minimum = max(5_000.0, 3.0 * max(radius_m, forbidden_radius))
+            if _approx_distance_m(lat2, lon2, forbidden_lat, forbidden_lon) < minimum:
+                safe = False
+                break
+
+        if safe:
+            return ValidationCase(
+                name=f"Unlabeled control near {lat:.3f},{lon:.3f}",
+                case_type="control_unlabeled",
+                lat=lat2,
+                lon=lon2,
+                radius_m=radius_m,
+                site_id=None,
+            )
+
+    raise ValueError("Could not generate a control sufficiently separated from known public sites.")
 
 
 def evaluate_heatmap(
