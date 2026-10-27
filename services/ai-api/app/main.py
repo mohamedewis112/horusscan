@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 import httpx\nfrom fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.persistence import PersistenceUnavailable, SupabasePersistence
@@ -22,6 +23,19 @@ app = FastAPI(
     title="HorusScan AI API",
     version="0.2.0",
     description="Remote-sensing analysis service. No fake scores or excavation claims.",
+)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["authorization", "content-type"],
 )
 
 
