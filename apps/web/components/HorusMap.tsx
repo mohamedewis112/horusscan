@@ -98,7 +98,6 @@ export default function HorusMap() {
       style: "https://demotiles.maplibre.org/style.json",
       center: [30.8, 26.8],
       zoom: 4.7,
-      attributionControl: true,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
@@ -373,7 +372,7 @@ export default function HorusMap() {
           </>
         )}
         {signedIn && supabase && (
-          <button onClick={() => supabase.auth.signOut()}>Sign out</button>
+          <button onClick={() => void supabase?.auth.signOut()}>Sign out</button>
         )}
       </div>
 
