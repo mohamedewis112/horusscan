@@ -433,6 +433,183 @@ export type Database = {
         }
         Relationships: []
       }
+      validation_results: {
+        Row: {
+          case_name: string
+          case_type: string
+          center_block_percentile: number | null
+          concentration_ratio: number | null
+          created_at: string
+          detected_high_priority: boolean | null
+          error_message: string | null
+          evaluated_center: unknown
+          evaluation_radius_m: number
+          fusion_summary: Json
+          id: string
+          rediscovery_score: number | null
+          sensor_summary: Json
+          validation_run_id: string
+          validation_site_id: string | null
+        }
+        Insert: {
+          case_name: string
+          case_type: string
+          center_block_percentile?: number | null
+          concentration_ratio?: number | null
+          created_at?: string
+          detected_high_priority?: boolean | null
+          error_message?: string | null
+          evaluated_center: unknown
+          evaluation_radius_m: number
+          fusion_summary?: Json
+          id?: string
+          rediscovery_score?: number | null
+          sensor_summary?: Json
+          validation_run_id: string
+          validation_site_id?: string | null
+        }
+        Update: {
+          case_name?: string
+          case_type?: string
+          center_block_percentile?: number | null
+          concentration_ratio?: number | null
+          created_at?: string
+          detected_high_priority?: boolean | null
+          error_message?: string | null
+          evaluated_center?: unknown
+          evaluation_radius_m?: number
+          fusion_summary?: Json
+          id?: string
+          rediscovery_score?: number | null
+          sensor_summary?: Json
+          validation_run_id?: string
+          validation_site_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "validation_results_validation_run_id_fkey"
+            columns: ["validation_run_id"]
+            isOneToOne: false
+            referencedRelation: "validation_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "validation_results_validation_site_id_fkey"
+            columns: ["validation_site_id"]
+            isOneToOne: false
+            referencedRelation: "validation_sites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      validation_runs: {
+        Row: {
+          completed_cases: number
+          created_at: string
+          dataset_version: string
+          error_message: string | null
+          finished_at: string | null
+          git_commit: string | null
+          id: string
+          metrics: Json
+          parameters: Json
+          requested_by: string
+          split: string
+          started_at: string | null
+          status: string
+          total_cases: number
+        }
+        Insert: {
+          completed_cases?: number
+          created_at?: string
+          dataset_version: string
+          error_message?: string | null
+          finished_at?: string | null
+          git_commit?: string | null
+          id?: string
+          metrics?: Json
+          parameters?: Json
+          requested_by: string
+          split: string
+          started_at?: string | null
+          status?: string
+          total_cases?: number
+        }
+        Update: {
+          completed_cases?: number
+          created_at?: string
+          dataset_version?: string
+          error_message?: string | null
+          finished_at?: string | null
+          git_commit?: string | null
+          id?: string
+          metrics?: Json
+          parameters?: Json
+          requested_by?: string
+          split?: string
+          started_at?: string | null
+          status?: string
+          total_cases?: number
+        }
+        Relationships: []
+      }
+      validation_sites: {
+        Row: {
+          center: unknown
+          created_at: string
+          dataset_version: string
+          evaluation_radius_m: number
+          id: string
+          latitude: number
+          longitude: number
+          name: string
+          notes: string | null
+          public_source: boolean
+          region_group: string
+          site_type: string
+          source_name: string
+          source_record_id: string
+          source_url: string
+          split: string
+        }
+        Insert: {
+          center: unknown
+          created_at?: string
+          dataset_version: string
+          evaluation_radius_m: number
+          id?: string
+          latitude: number
+          longitude: number
+          name: string
+          notes?: string | null
+          public_source?: boolean
+          region_group: string
+          site_type?: string
+          source_name: string
+          source_record_id: string
+          source_url: string
+          split: string
+        }
+        Update: {
+          center?: unknown
+          created_at?: string
+          dataset_version?: string
+          evaluation_radius_m?: number
+          id?: string
+          latitude?: number
+          longitude?: number
+          name?: string
+          notes?: string | null
+          public_source?: boolean
+          region_group?: string
+          site_type?: string
+          source_name?: string
+          source_record_id?: string
+          source_url?: string
+          split?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
