@@ -1166,3 +1166,49 @@ async def smoke_rediscovery(case_key: str, control: bool = False, profile: str =
             "Rediscovery score is a ranking metric, not an archaeological probability."
         ),
     }
+
+
+
+@app.get("/v1/smoke/council")
+async def smoke_council() -> dict:
+    if os.getenv("ENABLE_PUBLIC_SMOKE_TESTS", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Smoke tests are disabled.")
+
+    from datetime import timedelta, timezone
+    from app.council_router import CouncilRequest, analyze_with_horus_council
+
+    bbox = (31.20, 29.92, 31.22, 29.94)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=730)
+    result = await analyze_with_horus_council(
+        CouncilRequest(
+            bbox=bbox,
+            start=start,
+            end=end,
+            max_cloud=25.0,
+            fusion_profile="calibration_v1",
+            max_candidates=3,
+        )
+    )
+    return {
+        "real_data": result["real_data"],
+        "engine": result["engine"],
+        "branches_used": result["branches_used"],
+        "fusion_profile": result["fusion_profile"],
+        "candidate_count": result["council"]["candidate_count"],
+        "candidates": [
+            {
+                "candidate_id": row["candidate_id"],
+                "evidence_confidence_index": row["evidence_confidence_index"],
+                "uncertainty_band": row["uncertainty_band"],
+                "priority": row["priority"],
+                "independent_support_count": row["independent_support_count"],
+                "independent_groups_present": row["independent_groups_present"],
+                "critic_verdict": row["critic"]["verdict"],
+                "approximate_center": row["approximate_center"],
+            }
+            for row in result["council"]["candidates"]
+        ],
+        "limitations": result["limitations"],
+        "scientific_status": result["scientific_status"],
+    }
