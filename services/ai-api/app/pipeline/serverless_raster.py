@@ -13,7 +13,36 @@ from app.pipeline.sentinel2 import (
     spectral_anomaly_score,
     summarize_score,
 )
-from app.pipeline.raster_baseline import _heatmap_geojson
+
+
+
+def _heatmap_geojson(
+    score: np.ndarray,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    min_lon, min_lat, max_lon, max_lat = bbox
+    height, width = score.shape
+    stride = max(1, min(height, width) // 32)
+    features: list[dict[str, Any]] = []
+
+    for row in range(0, height, stride):
+        for col in range(0, width, stride):
+            block = score[row : row + stride, col : col + stride]
+            valid = block[np.isfinite(block)]
+            if valid.size == 0:
+                continue
+            value = float(np.mean(valid))
+            lon = min_lon + ((col + stride / 2) / width) * (max_lon - min_lon)
+            lat = max_lat - ((row + stride / 2) / height) * (max_lat - min_lat)
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                    "properties": {"anomaly_score": value},
+                }
+            )
+
+    return {"type": "FeatureCollection", "features": features}
 
 
 PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
