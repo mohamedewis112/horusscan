@@ -35,7 +35,7 @@ CALIBRATION_V1_METADATA = {
     "cases": ["Abu Mena", "Site of Memphis"],
     "controls": "deterministic_unlabeled_controls",
     "formula": "clip(exp(1.5 * mean(site_rediscovery-control_rediscovery)), 0.65, 1.5)",
-    "validation_cases_excluded_from_tuning": ["Temple of Karnak", "Temple of Luxor"],
+    "validation_cases_excluded_from_tuning": ["Temple of Karnak", "Temple of Luxor", "Ancient Thebes Necropolis"],
     "large_landscape_case_excluded": "Pyramid fields from Giza to Dahshur",
 }
 
@@ -765,7 +765,7 @@ async def run_serverless_hyperfusion(
     end: datetime,
     max_cloud: float = 20.0,
     include_branch_heatmaps: bool = False,
-    fusion_profile: str = "equal_v0",
+    fusion_profile: str = "calibration_v1",
 ) -> dict[str, Any]:
     discovery = await asyncio.gather(
         search_pc_collection("sentinel-2-l2a", bbox, start, end, max_cloud, 5),
