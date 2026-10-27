@@ -210,6 +210,72 @@ export default function HorusMapV2() {
     };
   }, [drawing]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !result) return;
+
+    const draw = () => {
+      const heatSource = map.getSource("council-heat") as maplibregl.GeoJSONSource | undefined;
+      if (heatSource) {
+        heatSource.setData(result.fusion.heatmap);
+      } else {
+        map.addSource("council-heat", { type: "geojson", data: result.fusion.heatmap });
+        map.addLayer({
+          id: "council-heat-layer",
+          type: "heatmap",
+          source: "council-heat",
+          paint: {
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "anomaly_score"], 0, 0, 1, 1],
+            "heatmap-intensity": 1.35,
+            "heatmap-radius": 28,
+            "heatmap-opacity": 0.72,
+          },
+        });
+      }
+
+      const candidateData = {
+        type: "FeatureCollection" as const,
+        features: result.council.candidates.map((candidate) => ({
+          type: "Feature" as const,
+          properties: {
+            candidate_id: candidate.candidate_id,
+            confidence: candidate.evidence_confidence_index,
+            priority: candidate.priority,
+          },
+          geometry: candidate.geometry,
+        })),
+      };
+
+      const candidateSource = map.getSource("council-candidates") as maplibregl.GeoJSONSource | undefined;
+      if (candidateSource) {
+        candidateSource.setData(candidateData);
+      } else {
+        map.addSource("council-candidates", { type: "geojson", data: candidateData });
+        map.addLayer({
+          id: "council-candidate-fill",
+          type: "fill",
+          source: "council-candidates",
+          paint: {
+            "fill-color": "#e7bc60",
+            "fill-opacity": 0.18,
+          },
+        });
+        map.addLayer({
+          id: "council-candidate-line",
+          type: "line",
+          source: "council-candidates",
+          paint: {
+            "line-color": "#ffe09a",
+            "line-width": 3,
+          },
+        });
+      }
+    };
+
+    if (map.isStyleLoaded()) draw();
+    else map.once("load", draw);
+  }, [result]);
+
   const bbox = useMemo(() => {
     if (points.length < 3) return null;
 
