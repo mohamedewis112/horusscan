@@ -32,6 +32,7 @@ DETECTION_COMPETITORS = {
     "terraflow",
     "olmoearth",
     "physics_sar",
+    "thermal_inertia",
 }
 
 
