@@ -7,10 +7,8 @@ from typing import Any
 
 import httpx
 import numpy as np
-import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from terratorch.registry import BACKBONE_REGISTRY
 
 
 PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
@@ -74,6 +72,9 @@ async def _read(item, collection: str, bbox, assets: tuple[str,...], shape=224):
 def _load():
     global _model
     if _model is None:
+        import torch
+        from terratorch.registry import BACKBONE_REGISTRY
+
         _model=BACKBONE_REGISTRY.build(
             "terramind_v1_tiny",
             pretrained=True,
@@ -85,6 +86,8 @@ def _load():
 
 
 def _extract_tokens(output):
+    import torch
+
     value=output
     if isinstance(value,dict):
         value=list(value.values())[-1]
@@ -102,6 +105,8 @@ def _extract_tokens(output):
 
 
 def _infer_sync(s2: np.ndarray, s1: np.ndarray, bbox):
+    import torch
+
     model=_load()
     for i in range(12):
         s2[i]=(s2[i]-S2_MEAN[i])/S2_STD[i]
