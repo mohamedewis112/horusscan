@@ -248,6 +248,7 @@ async def smoke_council() -> dict[str, Any]:
         "branches_used": result["branches_used"],
         "candidate_count": result["council"]["candidate_count"],
         "coverage_summary": result["council"].get("coverage_summary"),
+        "memory_layer": result["council"].get("memory_layer"),
         "candidate_summary": [
             {
                 "candidate_id": item["candidate_id"],
@@ -258,6 +259,7 @@ async def smoke_council() -> dict[str, Any]:
                 "model_agreement": item["council_summary"]["model_agreement"],
                 "critic_verdict": item["critic"]["verdict"],
                 "multi_scale_review": item.get("multi_scale_review"),
+                "archaeology_memory": item.get("archaeology_memory"),
             }
             for item in result["council"]["candidates"]
         ],
