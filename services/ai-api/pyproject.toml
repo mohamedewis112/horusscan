@@ -14,7 +14,8 @@ dependencies = [
   "shapely==2.1.2",
   "pystac-client==0.9.1",
   "planetary-computer==1.0.0",
-  "tifffile==2026.10.15"
+  "tifffile==2026.10.15",
+  "imagecodecs==2026.10.10"
 ]
 
 [project.optional-dependencies]
