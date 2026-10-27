@@ -512,8 +512,11 @@ async def run_validation_benchmark(
                 "end": request.end.isoformat(),
                 "max_cloud": request.max_cloud,
                 "include_unlabeled_controls": request.include_unlabeled_controls,
-                "method": "known_site_rediscovery_v1",
+                "method": "known_site_rediscovery_v2_serverless_hyperfusion",
+                "fusion_profile": "calibration_v1",
+                "model_version": "v1-calibrated-default",
                 "control_semantics": "unlabeled_not_confirmed_negative",
+                "blind_details_withheld": request.split == "blind_test",
             },
             git_commit=os.getenv("GIT_COMMIT_SHA"),
         )
@@ -570,6 +573,7 @@ async def run_validation_benchmark(
                         request.start,
                         request.end,
                         request.max_cloud,
+                        fusion_profile="calibration_v1",
                     )
                     evaluation = case_result["evaluation"]
                     row = {
