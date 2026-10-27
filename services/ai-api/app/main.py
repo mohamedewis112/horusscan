@@ -187,7 +187,7 @@ async def run_multisensor_baseline(
                 {
                     "status": "discovering",
                     "progress_stage": "multisensor_data_discovery",
-                    "started_at": datetime.utcnow().isoformat() + "Z",
+                    "started_at": datetime.utcnow().isoformat() + "Z",\n                    "git_commit": os.getenv("GIT_COMMIT_SHA"),
                 },
             )
         except (PersistenceUnavailable, httpx.HTTPError, PermissionError) as exc:
