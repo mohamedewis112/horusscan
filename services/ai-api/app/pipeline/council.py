@@ -245,16 +245,22 @@ def build_council_report(
 
         lon, lat = _position_for_cell(row, col, fused.shape, bbox)
         cell_dx, cell_dy = _cell_size_m(lat, fused.shape, bbox)
+        # Public research output is deliberately coarse. Exact subsurface-target
+        # coordinates/polygons are not emitted for unknown candidates.
         spatial_uncertainty_m = float(
-            max(15.0, min(250.0, 2.2 * max(cell_dx, cell_dy)))
+            max(500.0, min(1500.0, 6.0 * max(cell_dx, cell_dy)))
         )
 
         reports.append(
             {
                 "candidate_id": f"H-{index:03d}",
-                "center": {"lon": lon, "lat": lat},
+                "approximate_center": {
+                    "lon": round(lon, 2),
+                    "lat": round(lat, 2),
+                    "precision": "coarse_research_zone",
+                },
                 "geometry": _candidate_polygon(lon, lat, spatial_uncertainty_m),
-                "geometry_source": "fusion_candidate_envelope",
+                "geometry_source": "coarse_research_zone_not_excavation_target",
                 "sam_segmentation_status": (
                     "pending_real_endpoint"
                     if "sam3_1" in limitations
@@ -321,6 +327,6 @@ def build_council_report(
             "deliberation": "structured_evidence_adjudication_not_freeform_chat",
             "evidence_independence": "correlated models are grouped before consensus",
             "confidence": "calibrated ranking index with disagreement-derived uncertainty; not probability of archaeology",
-            "candidate_generation": "local maxima of calibrated HyperFusion surface",
+            "candidate_generation": "local maxima summarized into coarse research zones; exact target coordinates withheld",
         },
     }
