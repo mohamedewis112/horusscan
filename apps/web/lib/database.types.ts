@@ -390,7 +390,7 @@ export type Database = {
       }
       satellite_scenes: {
         Row: {
-          acquisition_time: string
+          acquisition_time: string | null
           assets: Json
           cloud_cover: number | null
           collection: string
@@ -404,7 +404,7 @@ export type Database = {
           sensor: string
         }
         Insert: {
-          acquisition_time: string
+          acquisition_time?: string | null
           assets?: Json
           cloud_cover?: number | null
           collection: string
@@ -418,7 +418,7 @@ export type Database = {
           sensor: string
         }
         Update: {
-          acquisition_time?: string
+          acquisition_time?: string | null
           assets?: Json
           cloud_cover?: number | null
           collection?: string
