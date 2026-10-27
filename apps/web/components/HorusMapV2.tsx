@@ -344,6 +344,59 @@ export default function HorusMapV2() {
           },
         });
       }
+
+      const centerData = {
+        type: "FeatureCollection" as const,
+        features: result.council.candidates.map((candidate) => ({
+          type: "Feature" as const,
+          properties: {
+            candidate_id: candidate.candidate_id,
+            confidence: candidate.evidence_confidence_index,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [
+              candidate.approximate_center.lon,
+              candidate.approximate_center.lat,
+            ] as [number, number],
+          },
+        })),
+      };
+
+      const centerSource = map.getSource("council-candidate-centers") as maplibregl.GeoJSONSource | undefined;
+      if (centerSource) {
+        centerSource.setData(centerData);
+      } else {
+        map.addSource("council-candidate-centers", { type: "geojson", data: centerData });
+        map.addLayer({
+          id: "council-candidate-center",
+          type: "circle",
+          source: "council-candidate-centers",
+          paint: {
+            "circle-radius": 7,
+            "circle-color": "#101820",
+            "circle-stroke-color": "#ffe09a",
+            "circle-stroke-width": 3,
+          },
+        });
+        map.addLayer({
+          id: "council-candidate-label",
+          type: "symbol",
+          source: "council-candidate-centers",
+          layout: {
+            "text-field": ["get", "candidate_id"],
+            "text-size": 12,
+            "text-offset": [0, -1.4],
+            "text-anchor": "bottom",
+            "text-allow-overlap": true,
+          },
+          paint: {
+            "text-color": "#ffe09a",
+            "text-halo-color": "#101820",
+            "text-halo-width": 2,
+          },
+        });
+      }
     };
 
     if (map.isStyleLoaded()) draw();
@@ -412,6 +465,18 @@ export default function HorusMapV2() {
     return payload as CouncilResponse;
   }
 
+  function focusCandidate(candidate: HorusCouncil["candidates"][number]) {
+    const lon = Number(candidate.approximate_center.lon);
+    const lat = Number(candidate.approximate_center.lat);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+
+    mapRef.current?.flyTo({
+      center: [lon, lat],
+      zoom: 17,
+      essential: true,
+    });
+  }
+
   async function runCouncil() {
     if (!bbox) {
       setError("حدد المنطقة أولًا.");
@@ -460,7 +525,7 @@ export default function HorusMapV2() {
       for (const run of completed) {
         const seen = new Set<string>();
         for (const candidate of run.council.candidates) {
-          const key = `${candidate.approximate_center.lat.toFixed(2)},${candidate.approximate_center.lon.toFixed(2)}`;
+          const key = `${candidate.approximate_center.lat.toFixed(5)},${candidate.approximate_center.lon.toFixed(5)}`;
           if (seen.has(key)) continue;
           seen.add(key);
           const current = zones.get(key) ?? { appearances: 0, confidences: [] };
@@ -594,7 +659,12 @@ export default function HorusMapV2() {
 
       <div ref={containerRef} className="map map-enhanced" aria-label="خريطة HorusScan" />
 
-      {result?.council && <CouncilResultPanel council={result.council} />}
+      {result?.council && (
+        <CouncilResultPanel
+          council={result.council}
+          onFocusCandidate={focusCandidate}
+        />
+      )}
     </div>
   );
 }
