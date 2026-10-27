@@ -795,6 +795,33 @@ async def run_serverless_hyperfusion(
         except Exception as exc:
             limitations["thermal"] = f"{type(exc).__name__}: {exc}"
 
+    if end.year >= 2023:
+        try:
+            from app.pipeline.olmoearth_embeddings import analyze_olmoearth_embeddings
+
+            olmo_year = min(2025, end.year)
+            olmo = await analyze_olmoearth_embeddings(
+                bbox,
+                year=olmo_year,
+                dims=64,
+                target_shape=spectral["score"].shape,
+            )
+            if olmo["score"].shape != spectral["score"].shape:
+                limitations["olmoearth"] = (
+                    f"OlmoEarth shape {olmo['score'].shape} differs from spectral "
+                    f"{spectral['score'].shape}; excluded from fusion."
+                )
+            else:
+                evidence[f"olmoearth_{olmo_year}"] = olmo["score"]
+            branches[f"olmoearth_{olmo_year}"] = olmo["summary"]
+            provenance[f"olmoearth_{olmo_year}"] = olmo["provenance"]
+        except Exception as exc:
+            limitations["olmoearth"] = f"{type(exc).__name__}: {exc}"
+    else:
+        limitations["olmoearth"] = (
+            "Global OlmoEarth v1.3 embeddings are only guaranteed for 2023-2025."
+        )
+
     fusion = fuse_serverless_layers(evidence, bbox)
     return {
         "real_data": True,
@@ -812,11 +839,14 @@ async def run_serverless_hyperfusion(
             "sentinel1_count": len(s1_scenes),
             "dem_count": len(dem_scenes),
             "landsat_thermal_count": len(thermal_scenes),
+            "olmoearth_year": min(2025, end.year) if end.year >= 2023 else None,
+            "olmoearth_source": "Source Cooperative / Ai2",
         },
         "limitations": limitations,
         "discovery_errors": discovery_errors,
         "scientific_status": (
-            "Real-data serverless HyperFusion using Planetary Computer NumpyTiles. "
-            "Scores are evidence ranks, not calibrated archaeological probabilities."
+            "Real-data HyperFusion using Planetary Computer EO layers plus optional "
+            "OlmoEarth v1.3 global embeddings. Scores are evidence ranks, not calibrated "
+            "archaeological probabilities."
         ),
     }
