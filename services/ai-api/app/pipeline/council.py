@@ -212,11 +212,30 @@ def build_council_report(
             if groups_present
             else 0.0
         )
-        mean_support = float(np.mean(list(branch_scores.values()))) if branch_scores else 0.0
-        dispersion = float(np.std(list(branch_scores.values()))) if branch_scores else 0.5
+
+        # Correlated branches deliberate separately, but confidence is computed
+        # once per independent evidence family so two models reading the same
+        # sensor cannot double-vote the final score.
+        grouped_values: dict[str, list[float]] = {}
+        for name, score in branch_scores.items():
+            grouped_values.setdefault(_group(name), []).append(score)
+        group_scores = {
+            group: float(np.mean(values))
+            for group, values in grouped_values.items()
+        }
+        group_verdicts = {
+            group: (
+                "support" if score >= 0.66
+                else "challenge" if score < 0.36
+                else "neutral"
+            )
+            for group, score in group_scores.items()
+        }
+        mean_support = float(np.mean(list(group_scores.values()))) if group_scores else 0.0
+        dispersion = float(np.std(list(group_scores.values()))) if group_scores else 0.5
         contradiction_ratio = (
-            len(challengers) / len(branch_scores)
-            if branch_scores
+            sum(value == "challenge" for value in group_verdicts.values()) / len(group_verdicts)
+            if group_verdicts
             else 1.0
         )
 
@@ -278,6 +297,10 @@ def build_council_report(
                 "independent_support_groups": sorted(groups_supporting),
                 "independent_support_count": len(groups_supporting),
                 "independent_groups_present": len(groups_present),
+                "independence_group_scores": {
+                    group: round(score, 4) for group, score in group_scores.items()
+                },
+                "independence_group_verdicts": group_verdicts,
                 "supporters": supporters,
                 "challengers": challengers,
                 "neutral": neutrals,
