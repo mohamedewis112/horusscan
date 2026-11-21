@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Service = { status: string; label: string; detail: string };
+type Service = { status: string; label: string; detail: string; url?: string };
 type Health = { checked_at: string; model: Service; database: Service; executor: Service; test_scope: string };
 
 export default function ConnectivityPanel() {
@@ -50,6 +50,7 @@ export default function ConnectivityPanel() {
             <small>{item.title}</small>
             <strong className={good ? "connection-ok" : "connection-warn"}>{checking && !item.info ? "جارٍ التحقق" : item.info?.label || "الحالة غير متاحة"}</strong>
             <span>{item.info?.detail || "قراءة حالة الخدمة من API..."}</span>
+            {item.id === "executor" && item.info?.url && <a href={item.info.url} target="_blank" rel="noopener noreferrer" style={{ color: "#a8e4d0", fontSize: 12, fontWeight: 700, marginTop: 4 }}>فتح واجهة ARTEX ←</a>}
           </div>;
         })}
       </div>
