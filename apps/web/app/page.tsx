@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import SecurityWorkbench from "../components/SecurityWorkbench";
 
 type Phase = "scope" | "model" | "environment" | "review";
 const phases: { id: Phase; title: string; detail: string }[] = [
@@ -96,6 +97,7 @@ export default function HomePage() {
         </div>
         <section className="surface capabilities"><div className="section-head"><div><span className="eyebrow">SECURITY WORKFLOWS</span><h2>الاختبارات المخطط لها</h2></div><span className="pill">قيد التطوير</span></div>
         <div className="capability-grid">{tools.map((item,index) => <div className="capability" key={item.name}><span className="cap-number">0{index+1}</span><h3>{item.name}</h3><p>{item.about}</p><span className="cap-status">{item.stage}</span></div>)}</div></section>
+        <SecurityWorkbench />
         <footer>HORUS SECURITY LAB · من نفس مستودع HorusScan · لا توجد نتائج أو فحوصات فعلية في هذه النسخة</footer>
       </main>
     </div>
