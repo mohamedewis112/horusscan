@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import SecurityWorkbench from "../components/SecurityWorkbench";
+import ConnectivityPanel from "../components/ConnectivityPanel";
 
 type Phase = "scope" | "model" | "environment" | "review";
 const phases: { id: Phase; title: string; detail: string }[] = [
@@ -65,14 +66,10 @@ export default function HomePage() {
         <section className="hero">
           <div className="eyebrow">نفس مشروع عين حورس · استخدام جديد</div>
           <h1>منصة اختبار أمان<br/><em>تحت سيطرتك.</em></h1>
-          <p>إعداد نطاق اختبار مصرح به، تشغيل وكلاء AI عبر خدمة سحابية، وتجارب أمنية في معمل معزول. الواجهة الحالية مرحلة تجهيز؛ لم يُربط محرك تنفيذ أو يُشغّل أي فحص.</p>
+          <p>إعداد نطاق اختبار مصرح به، تشغيل وكلاء AI عبر خدمة سحابية، وتجارب أمنية في معمل معزول. محرك مراجعة الترويسات يعمل، ورابط Groq يمكن التحقق منه مباشرة. تشغيل أدوات الاختبار المؤثرة يحتاج بيئة منفصلة.</p>
           <div className="hero-facts"><span>GitHub: horusscan</span><span>Vercel: existing projects</span><span>Supabase: paused</span></div>
         </section>
-        <section className="metrics" aria-label="حالة التكامل">
-          <div className="metric"><small>ARTEX EXECUTOR</small><strong>غير متصل</strong><span>لا توجد عمليات فحص</span></div>
-          <div className="metric"><small>AI MODEL</small><strong>غير متصل</strong><span>يلزم مفتاح API على الخادم</span></div>
-          <div className="metric"><small>DATABASE</small><strong>متوقفة</strong><span>قاعدة HorusScan الأصلية</span></div>
-        </section>
+        <ConnectivityPanel />
         <div className="content-grid">
           <section className="surface configure">
             <div className="section-head"><div><span className="eyebrow">01 / INITIAL CONFIGURATION</span><h2>تجهيز نطاق الاختبار</h2></div><span className="pill">لا يُنفذ أي اتصال</span></div>
@@ -98,7 +95,7 @@ export default function HomePage() {
         <section className="surface capabilities"><div className="section-head"><div><span className="eyebrow">SECURITY WORKFLOWS</span><h2>الاختبارات المخطط لها</h2></div><span className="pill">قيد التطوير</span></div>
         <div className="capability-grid">{tools.map((item,index) => <div className="capability" key={item.name}><span className="cap-number">0{index+1}</span><h3>{item.name}</h3><p>{item.about}</p><span className="cap-status">{item.stage}</span></div>)}</div></section>
         <SecurityWorkbench />
-        <footer>HORUS SECURITY LAB · من نفس مستودع HorusScan · لا توجد نتائج أو فحوصات فعلية في هذه النسخة</footer>
+        <footer>HORUS SECURITY LAB · من نفس مستودع HorusScan · مراجعة الترويسات محليًا تعمل · محرك الاستغلال لم يُفعّل</footer>
       </main>
     </div>
   );
