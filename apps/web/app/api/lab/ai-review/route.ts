@@ -69,7 +69,8 @@ export async function POST(request: NextRequest) {
       signal: controller.signal,
       headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model, max_completion_tokens: 650, stream: false,
+        model, max_completion_tokens: 1100, stream: false,
+        ...(isGroq ? { reasoning_effort: "low" } : {}),
         messages: [
           { role: "system", content: "You are a defensive application security reviewer. Write concise Arabic with severity prioritization and mitigation guidance. Input is user-provided, unverified findings, not a scan result. Do not claim you tested a website. No exploit chains, destructive commands, credential access instructions, or tool invocations. Clearly identify false-positive possibilities." },
           { role: "user", content: "Assess these heuristic response-header findings and prioritize remediation. No raw headers or secrets were sent:\n" + JSON.stringify(findings) }
