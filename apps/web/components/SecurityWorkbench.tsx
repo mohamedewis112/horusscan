@@ -82,8 +82,11 @@ export default function SecurityWorkbench() {
     URL.revokeObjectURL(url);
   }
 
-  async function askModel() {
-    if (!findings.length || !token.trim() || busy) return;
+  async function askModel(mode: "review" | "smoke" = "review") {
+    if ((!findings.length && mode !== "smoke") || !token.trim() || busy) return;
+    const requestFindings = mode === "smoke"
+      ? [{ severity: "معلوماتي", title: "اختبار اتصال تجريبي", detail: "هذه بيانات اختبار وهمية، وليس هناك موقع تم فحصه.", recommendation: "اكتب ملخصًا قصيرًا لتأكيد عمل نموذج الذكاء الاصطناعي." }]
+      : findings.map(({ severity, title, detail, recommendation }) => ({ severity, title, detail, recommendation }));
     setBusy(true); setError(""); setAnswer("");
     try {
       const response = await fetch("/api/lab/ai-review", {
@@ -92,12 +95,12 @@ export default function SecurityWorkbench() {
         headers: { "Content-Type": "application/json", "X-Horus-Operator-Token": token.trim() },
         body: JSON.stringify({
           provider,
-          findings: findings.map(({ severity, title, detail, recommendation }) => ({ severity, title, detail, recommendation })),
+          findings: requestFindings,
         }),
       });
       const result = await response.json() as { answer?: string; error?: string; model?: string };
       if (!response.ok || !result.answer) throw new Error(result.error || "تعذر الحصول على التحليل.");
-      setAnswer(result.answer);
+      setAnswer(mode === "smoke" ? "✅ وصل رد فعلي من نموذج الذكاء الاصطناعي. الاختبار استخدم بيانات وهمية فقط.\n\n" + result.answer : result.answer);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر الاتصال بالنموذج.");
     } finally {
@@ -125,11 +128,12 @@ export default function SecurityWorkbench() {
       </div>
       <div className="lab-ai">
         <div><span className="eyebrow">SERVER-SIDE MODEL INTEGRATION</span><h3>تحليل النتائج بواسطة نموذج AI</h3></div>
-        <p className="muted">ترسل ملخص النتائج فقط إلى مزود AI الذي تختاره، ولا ترسل الترويسات الخام. الربط جاهز برمجيًا لكنه يحتاج مفاتيح الخادم وضبط صلاحية المشغّل على Vercel.</p>
+        <p className="muted">ترسل ملخص النتائج فقط إلى مزود AI الذي تختاره، ولا ترسل الترويسات الخام. مفتاح Groq تمت إضافته في Preview. أدخل رمز المشغّل ثم اضغط «اختبار توليد رد AI» للتحقق الفعلي من النموذج ببيانات وهمية، أو حلّل نتائج ترويساتك.</p>
         <div className="lab-controls">
           <label>المزود<select value={provider} onChange={e => setProvider(e.target.value as "groq" | "openrouter")}><option value="groq">Groq · GPT-OSS 120B</option><option value="openrouter">OpenRouter · نموذج مفتوح الأوزان</option></select></label>
           <label>رمز المشغّل<input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="LAB_OPERATOR_TOKEN" /></label>
-          <button type="button" disabled={!findings.length || !token.trim() || busy} onClick={askModel}>{busy ? "جارٍ تحليل النتائج..." : "تحليل النتائج بالذكاء الاصطناعي"}</button>
+          <button type="button" disabled={!token.trim() || busy} onClick={() => void askModel("smoke")}>{busy ? "جارٍ الاتصال..." : "اختبار توليد رد AI"}</button>
+          <button type="button" disabled={!findings.length || !token.trim() || busy} onClick={() => void askModel("review")}>تحليل نتائجي</button>
         </div>
         {error && <p role="alert" className="lab-error">{error}</p>}
         {answer && <div className="lab-answer" dir="rtl"><strong>مراجعة النموذج</strong><p>{answer}</p></div>}
